@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>สมุดเบิกคูปอง CJX</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    /* CJX-inspired palette: sunny yellow/orange, brand red + blue, warm brown "sticker" outline */
+    --paper:#FBF6EA; --paper-dark:#F3E9D2; --panel:#FFFFFF;
+    --ink:#3B2A18; --ink-soft:#7A6A52; --ink-faint:#B5A78C; --line:#E9DDC0; --dash:#D8C79E;
+    --brand-yellow:#FDB92E; --brand-yellow-soft:#FFF1D2; --brand-yellow-deep:#F6A600;
+    --brand-orange:#F4791F; --brand-orange-soft:#FDE6D2;
+    --brand-red:#E1332E; --brand-red-soft:#FCE1DF;
+    --brand-blue:#205CA8; --brand-blue-soft:#E3ECF7;
+    --brand-green:#00A651;
+    --brand-pink:#C24B72; --brand-pink-soft:#F7E3EA;
+    --act-claim:var(--brand-blue); --act-claim-soft:var(--brand-blue-soft);
+    --act-transfer:var(--brand-orange); --act-transfer-soft:var(--brand-orange-soft);
+    --act-return:var(--brand-pink); --act-return-soft:var(--brand-pink-soft);
+    --act-extend:var(--brand-yellow-deep); --act-extend-soft:var(--brand-yellow-soft);
+    --act-destroy:var(--brand-red); --act-destroy-soft:var(--brand-red-soft);
+    --shadow: 0 2px 0 rgba(59,42,24,.15); --radius: 12px; --radius-sm:7px;
+    --mono: 'SFMono-Regular', Consolas, 'Courier New', monospace;
+    --display: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{ -webkit-text-size-adjust:100%; }
+  body{ margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans); min-height:100vh; }
+  ::selection{ background:var(--brand-blue); color:#fff; }
+  button{ font-family:inherit; cursor:pointer; }
+  input, select, textarea{ font-family:inherit; font-size:16px; }
+  .app{ max-width:1100px; margin:0 auto; padding:16px 14px 90px; }
+
+  /* ---- Masthead: sunburst brand moment ---- */
+  .masthead{ position:relative; overflow:hidden; border-radius:var(--radius); border:3px solid var(--ink); margin-bottom:14px;
+    background:repeating-conic-gradient(from 0deg, var(--brand-yellow) 0deg 9deg, var(--brand-yellow-soft) 9deg 18deg); padding:16px; }
+  .masthead::after{ content:''; position:absolute; inset:0; background:radial-gradient(circle at 20% 15%, rgba(255,255,255,.45), transparent 55%); }
+  .masthead-row{ position:relative; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  .brand-title{ display:flex; align-items:center; gap:10px; background:var(--panel); border:2.5px solid var(--ink); border-radius:var(--radius-sm); padding:8px 14px; box-shadow:var(--shadow); }
+  .brand-mark-wrap{ display:flex; flex-direction:column; align-items:flex-start; }
+  .brand-mark{ font-family:var(--display); font-weight:900; font-size:22px; letter-spacing:-1px; line-height:1; }
+  .brand-mark .c{ color:var(--brand-red); } .brand-mark .j{ color:var(--brand-blue); } .brand-mark .x{ color:var(--brand-green); }
+  .brand-mark-rule{ width:100%; height:3px; background:var(--brand-green); border-radius:2px; margin-top:3px; }
+  .brand-title h1{ font-family:var(--display); font-size:17px; font-weight:800; margin:0; line-height:1.1; }
+  .brand-title .sub{ font-size:10px; color:var(--ink-soft); letter-spacing:1px; text-transform:uppercase; }
+  .masthead-actions{ position:relative; z-index:1; display:flex; gap:6px; flex-wrap:wrap; }
+
+  .crumbs{ font-size:12.5px; color:var(--ink-soft); margin:6px 0 16px; }
+  .crumbs a{ color:var(--brand-blue); text-decoration:none; cursor:pointer; border-bottom:1px dotted var(--brand-blue); font-weight:600; }
+  .crumbs a:hover{ color:var(--brand-red); border-color:var(--brand-red); }
+
+  .btn{ border:2.5px solid var(--ink); background:var(--panel); color:var(--ink); padding:10px 16px; border-radius:var(--radius-sm); font-size:13.5px; font-weight:700; box-shadow:var(--shadow); transition:transform .05s ease; }
+  .btn:active{ transform:translateY(2px); box-shadow:none; }
+  .btn:hover{ background:var(--paper-dark); }
+  .btn-claim{ border-color:var(--act-claim); color:var(--act-claim); } .btn-claim:hover{ background:var(--act-claim-soft); }
+  .btn-transfer{ border-color:var(--act-transfer); color:var(--act-transfer); } .btn-transfer:hover{ background:var(--act-transfer-soft); }
+  .btn-return{ border-color:var(--act-return); color:var(--act-return); } .btn-return:hover{ background:var(--act-return-soft); }
+  .btn-extend{ border-color:var(--act-extend); color:var(--act-extend); } .btn-extend:hover{ background:var(--act-extend-soft); }
+  .btn-destroy{ border-color:var(--act-destroy); color:var(--act-destroy); } .btn-destroy:hover{ background:var(--act-destroy-soft); }
+  .btn-ghost{ border-color:transparent; box-shadow:none; background:transparent; color:var(--ink-soft); }
+  .btn-ghost:hover{ background:var(--paper-dark); }
+  .btn-sm{ padding:6px 11px; font-size:12px; }
+  .btn:disabled{ opacity:.45; cursor:not-allowed; box-shadow:none; }
+  .btn-full{ display:block; width:100%; text-align:center; }
+
+  .folder-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(240px,1fr)); gap:12px; }
+  .folder{ background:var(--panel); border:2.5px solid var(--ink); border-top:8px solid var(--act-claim); border-radius:var(--radius); padding:14px; cursor:pointer; position:relative; box-shadow:var(--shadow); transition:transform .08s ease; }
+  .folder:hover{ transform:translateY(-2px); }
+  .folder.archived{ border-top-color:var(--ink-faint); opacity:.6; }
+  .folder.status-done{ border-top-color:var(--ink-faint); }
+  .folder.status-upcoming{ border-top-color:var(--brand-yellow-deep); }
+  .folder.status-closed{ border-top-color:var(--brand-orange); }
+  .folder h3{ margin:0 0 4px; font-family:var(--display); font-weight:800; font-size:16px; line-height:1.3; }
+  .folder .meta{ font-size:11.5px; color:var(--ink-soft); }
+  .folder .chips{ display:flex; gap:5px; flex-wrap:wrap; margin:8px 0; }
+  .chip{ font-size:10px; padding:3px 9px; border-radius:20px; font-weight:800; letter-spacing:.2px; white-space:nowrap; }
+  .chip-type{ background:var(--paper-dark); color:var(--ink-soft); }
+  .chip-status-active{ background:var(--act-claim-soft); color:var(--act-claim); }
+  .chip-status-upcoming{ background:var(--brand-yellow-soft); color:var(--brand-yellow-deep); }
+  .chip-status-done{ background:var(--paper-dark); color:var(--ink-faint); }
+  .chip-status-closed{ background:var(--brand-orange-soft); color:var(--brand-orange); }
+  .chip-burmese{ background:var(--brand-red-soft); color:var(--brand-red); }
+  .chip-team{ background:var(--brand-blue-soft); color:var(--brand-blue); }
+  .chip-noteam{ background:var(--brand-yellow-soft); color:var(--brand-yellow-deep); }
+  .folder .bar{ height:7px; background:var(--paper-dark); border-radius:6px; margin-top:8px; overflow:hidden; }
+  .folder .bar-fill{ height:100%; background:var(--act-claim); }
+  .folder .bar-fill.full{ background:var(--act-destroy); }
+  .folder .count-line{ font-size:11px; color:var(--ink-soft); margin-top:5px; }
+  .folder .tag-archived{ position:absolute; top:10px; right:10px; font-size:9px; letter-spacing:1px; color:var(--ink-faint); text-transform:uppercase; }
+  .new-folder{ border:2.5px dashed var(--dash); background:transparent; display:flex; align-items:center; justify-content:center; min-height:100px; border-radius:var(--radius); color:var(--ink-soft); font-size:13.5px; font-weight:700; }
+  .new-folder:hover{ border-color:var(--act-claim); color:var(--act-claim); background:var(--act-claim-soft); }
+
+  .panel{ background:var(--panel); border:2.5px solid var(--ink); border-radius:var(--radius); padding:16px; box-shadow:var(--shadow); }
+  .panel + .panel{ margin-top:14px; }
+  .panel-title{ font-family:var(--display); font-weight:800; font-size:15px; margin:0 0 12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+
+  .plan-head{ display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; margin-bottom:8px; }
+  .plan-head h2{ font-family:var(--display); font-weight:800; font-size:20px; margin:0 0 4px; }
+  .plan-head .meta{ font-size:12.5px; color:var(--ink-soft); }
+  .toolbar{ display:flex; gap:8px; flex-wrap:wrap; }
+  .plan-chips{ display:flex; gap:6px; flex-wrap:wrap; margin:8px 0 10px; }
+
+  .team-banner{ padding:10px 12px; border-radius:var(--radius-sm); font-size:13px; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; border:2px solid transparent; }
+  .team-banner.assigned{ background:var(--brand-blue-soft); color:var(--brand-blue); border-color:var(--brand-blue); }
+  .team-banner.unassigned{ background:var(--brand-yellow-soft); color:var(--brand-yellow-deep); border-color:var(--brand-yellow-deep); font-weight:700; }
+  .team-editor{ display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; align-items:center; }
+  .team-editor select{ border:2px solid var(--ink); padding:7px 9px; border-radius:var(--radius-sm); background:var(--paper); font-size:13px; }
+  .closed-banner{ background:var(--brand-orange-soft); color:var(--brand-orange); border:2px solid var(--brand-orange); border-radius:var(--radius-sm); padding:10px 12px; font-size:13px; font-weight:700; margin-bottom:10px; }
+
+  .tabs{ display:flex; gap:2px; border-bottom:2px solid var(--line); margin-bottom:16px; overflow-x:auto; }
+  .tab{ padding:8px 14px; font-size:13px; font-weight:700; color:var(--ink-soft); border-bottom:3px solid transparent; background:none; border-left:none;border-right:none;border-top:none; white-space:nowrap; }
+  .tab.active{ color:var(--ink); border-bottom-color:var(--brand-red); }
+
+  .coupon-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(46px,1fr)); gap:2px; border:2px dashed var(--dash); padding:2px; border-radius:var(--radius-sm); }
+  .coupon{ aspect-ratio:1/1; display:flex; align-items:center; justify-content:center; font-family:var(--mono); font-size:11px; font-weight:700; color:var(--ink-soft); border:1px dashed var(--dash); background:var(--paper); border-radius:4px; position:relative; min-height:38px; }
+  .coupon.owned{ color:var(--ink); border-style:solid; border-color:rgba(0,0,0,.15); }
+  .coupon.destroyed{ background:repeating-linear-gradient(45deg, var(--ink-faint), var(--ink-faint) 4px, var(--paper-dark) 4px, var(--paper-dark) 8px); color:var(--panel); text-decoration:line-through; }
+  .coupon-legend{ display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; font-size:12px; }
+  .legend-chip{ display:flex; align-items:center; gap:6px; }
+  .legend-swatch{ width:12px; height:12px; border-radius:3px; border:1px solid rgba(0,0,0,.15); }
+  .legend-swatch.destroyed-swatch{ background:repeating-linear-gradient(45deg, var(--ink-faint), var(--ink-faint) 2px, var(--paper-dark) 2px, var(--paper-dark) 4px); }
+
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th{ text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-soft); border-bottom:2px solid var(--ink); padding:7px 8px; }
+  td{ padding:9px 8px; border-bottom:1px solid var(--line); }
+  tr:hover td{ background:var(--paper-dark); }
+  .owner-swatch{ width:10px; height:10px; border-radius:3px; display:inline-block; margin-right:7px; vertical-align:middle; border:1px solid rgba(0,0,0,.15); }
+  .empty-row{ color:var(--ink-faint); font-style:italic; text-align:center; padding:20px; }
+  .table-scroll{ overflow-x:auto; }
+
+  .filters{ display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+  .filters input, .filters select{ border:2px solid var(--line); background:var(--panel); padding:8px 11px; border-radius:var(--radius-sm); font-size:13px; }
+  .filters input[type=text]{ min-width:180px; flex:1; }
+
+  .overlay{ position:fixed; inset:0; background:rgba(59,42,24,.45); display:flex; align-items:center; justify-content:center; padding:16px; z-index:50; overflow-y:auto; }
+  .modal{ background:var(--panel); border:3px solid var(--ink); border-radius:var(--radius); width:100%; max-width:440px; padding:20px; box-shadow:0 10px 0 rgba(59,42,24,.15); max-height:90vh; overflow-y:auto; }
+  .modal.wide{ max-width:560px; }
+  .modal h3{ font-family:var(--display); font-weight:800; margin:0 0 14px; font-size:18px; border-bottom:2px dashed var(--line); padding-bottom:10px; }
+  .field{ margin-bottom:12px; }
+  .field label{ display:block; font-size:11.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-soft); margin-bottom:5px; font-weight:700; }
+  .field input, .field select{ width:100%; border:2px solid var(--line); border-bottom:3px solid var(--ink); padding:9px 10px; border-radius:var(--radius-sm); font-size:15px; background:var(--paper); }
+  .field-row{ display:flex; gap:10px; }
+  .field-row .field{ flex:1; }
+  .field-check{ display:flex; align-items:center; gap:7px; font-size:13px; margin-bottom:12px; }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:16px; flex-wrap:wrap; }
+  .modal-note{ font-size:12px; color:var(--ink-soft); background:var(--paper-dark); padding:9px 11px; border-radius:var(--radius-sm); margin-top:6px; }
+  .modal-error{ font-size:12.5px; color:var(--brand-red); background:var(--brand-red-soft); padding:9px 11px; border-radius:var(--radius-sm); margin-top:10px; font-weight:700; }
+  .modal-warning{ font-size:13px; color:var(--brand-orange); background:var(--brand-orange-soft); padding:11px 12px; border-radius:var(--radius-sm); margin-bottom:12px; font-weight:700; border:2px solid var(--brand-orange); }
+  .locked-total{ font-family:var(--mono); font-size:15px; font-weight:800; background:var(--act-claim-soft); color:var(--act-claim); padding:10px 11px; border-radius:var(--radius-sm); }
+  .modal-tabs{ display:flex; gap:4px; margin-bottom:16px; border-bottom:2px solid var(--line); }
+  .modal-tab{ padding:6px 12px; font-size:12.5px; font-weight:700; color:var(--ink-soft); background:none; border:none; border-bottom:3px solid transparent; }
+  .modal-tab.active{ color:var(--ink); border-bottom-color:var(--brand-red); }
+  .type-row{ display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+  .type-row input[type=text]{ flex:2; } .type-row input[type=number]{ flex:1; }
+  .link-btn{ background:none; border:none; color:var(--brand-blue); text-decoration:underline; font-size:12.5px; padding:0; font-weight:600; }
+  .photo-preview{ max-width:180px; display:block; border:2px solid var(--line); border-radius:var(--radius-sm); margin-top:8px; }
+  .photo-lightbox img{ max-width:88vw; max-height:80vh; display:block; border-radius:var(--radius-sm); }
+  .destroy-block-list{ font-size:13px; background:var(--paper-dark); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:10px; }
+  .destroy-block-list div{ padding:2px 0; }
+
+  .toast{ position:fixed; bottom:76px; left:50%; transform:translateX(-50%); background:var(--ink); color:var(--paper); padding:11px 18px; border-radius:var(--radius-sm); font-size:13px; box-shadow:0 4px 14px rgba(0,0,0,.25); z-index:100; opacity:0; transition:opacity .2s ease; max-width:90vw; text-align:center; font-weight:600; }
+  .toast.show{ opacity:1; }
+  .empty-state{ text-align:center; padding:50px 20px; color:var(--ink-soft); }
+  .empty-state .big{ font-family:var(--display); font-weight:800; font-size:19px; color:var(--ink); margin-bottom:6px; }
+  .file-drop{ border:2.5px dashed var(--dash); border-radius:var(--radius); padding:20px; text-align:center; font-size:13px; color:var(--ink-soft); }
+  .file-drop input{ margin-top:10px; }
+
+  /* ---- Help page ---- */
+  .help-hero{ background:var(--brand-blue-soft); border:2.5px solid var(--brand-blue); border-radius:var(--radius); padding:16px; margin-bottom:16px; color:var(--brand-blue); font-weight:700; font-size:14px; }
+  .help-step{ display:flex; gap:12px; margin-bottom:16px; }
+  .help-step .num{ flex:0 0 auto; width:34px; height:34px; border-radius:50%; background:var(--brand-red); color:#fff; display:flex; align-items:center; justify-content:center; font-family:var(--display); font-weight:800; font-size:15px; }
+  .help-step .num.destroy{ background:var(--act-destroy); }
+  .help-step h4{ margin:0 0 4px; font-family:var(--display); font-weight:800; font-size:15px; }
+  .help-step p{ margin:0; font-size:13.5px; color:var(--ink-soft); line-height:1.6; }
+
+  /* ---- Mobile bottom nav ---- */
+  .mobile-nav{ display:none; }
+
+  @media (max-width:640px){
+    .app{ padding:12px 10px 78px; }
+    .coupon-grid{ grid-template-columns:repeat(auto-fill, minmax(38px,1fr)); }
+    .brand-title h1{ font-size:15px; } .brand-mark{ font-size:19px; }
+    .toolbar{ flex-direction:column; }
+    .toolbar .btn{ width:100%; }
+    .filters{ flex-direction:column; }
+    .filters input, .filters select{ width:100%; }
+    .filters input[type=text]{ min-width:0; }
+    .overlay{ padding:0; align-items:flex-end; }
+    .modal{ max-width:100%; width:100%; border-radius:16px 16px 0 0; max-height:92vh; border-bottom:none; }
+    .field-row{ flex-direction:column; }
+    .mobile-nav{ display:flex; position:fixed; bottom:0; left:0; right:0; background:var(--panel); border-top:3px solid var(--ink); z-index:40; }
+    .mobile-nav button{ flex:1; padding:10px 4px 8px; font-size:11px; font-weight:800; background:none; border:none; color:var(--ink-soft); display:flex; flex-direction:column; align-items:center; gap:2px; }
+    .mobile-nav button .ico{ font-size:18px; }
+    .mobile-nav button.active{ color:var(--brand-red); }
+  }
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<div id="toast" class="toast"></div>
+
+<script>
+/* ============ State ============ */
+let state = {
+  view:'home', planTab:'grid', currentPlanId:null,
+  plans:[], planData:null, employees:[], couponTypes:[],
+  modal:null, modalTab:'single', modalError:'',
+  claimManual:false, transferManual:false, destroyManual:false,
+  editingTeam:false, destroyPhoto:null,
+  homeFilter:{search:'', type:'', status:'all', team:''},
+  historyFilterName:'', historyFilterDate:'',
+  typeEditRows:[], viewPhotoUrl:null,
+};
+
+const PALETTE = ['#F4D35E','#F2A6B0','#A7C7E7','#B7E4C7','#F6B26B','#C9B6E4','#E8C1A0','#9FD8D8','#D8B4E2','#C8D96F'];
+function colorForKey(name){ if(!name) return '#ffffff'; let h=0; for(let i=0;i<name.length;i++){ h=(h*31+name.charCodeAt(i))>>>0; } return PALETTE[h % PALETTE.length]; }
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(showToast._t); showToast._t=setTimeout(()=>t.classList.remove('show'),3200); }
+function fmtDate(ts){ return new Date(ts).toLocaleString('th-TH', {year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
+function fmtDateShort(iso){ if(!iso) return '-'; return new Date(iso).toLocaleDateString('th-TH', {year:'2-digit',month:'short',day:'numeric'}); }
+function compressRanges(nums){
+  if(nums.length===0) return [];
+  const sorted=[...nums].sort((a,b)=>a-b); const ranges=[]; let start=sorted[0], prev=sorted[0];
+  for(let i=1;i<sorted.length;i++){ if(sorted[i]===prev+1){ prev=sorted[i]; continue; } ranges.push([start,prev]); start=sorted[i]; prev=sorted[i]; }
+  ranges.push([start,prev]); return ranges;
+}
+function rangeLabel(r){ return r[0]===r[1] ? `#${r[0]}` : `#${r[0]}–${r[1]}`; }
+function txRangeLabel(t){ if(t.ranges && t.ranges.length){ return t.ranges.map(rangeLabel).join(', '); } return `#${t.rangeFrom}–${t.rangeTo}`; }
+function planStatus(plan){
+  if(!plan.startDate) return 'unknown';
+  const today = new Date(); today.setHours(0,0,0,0);
+  const start = new Date(plan.startDate); const end = plan.endDate ? new Date(plan.endDate) : start;
+  if(today < start) return 'upcoming'; if(today > end) return 'done'; return 'active';
+}
+const STATUS_LABEL = {upcoming:'ยังไม่เริ่ม', active:'กำลังดำเนินการ', done:'จบแล้ว', unknown:''};
+function canDestroyToday(plan){ if(!plan.endDate) return true; const today=new Date(); today.setHours(0,0,0,0); const end=new Date(plan.endDate); return today >= end; }
+
+/* ============ Employee helpers ============ */
+function teamsList(){ return [...new Set(state.employees.map(e=>e.team))].sort(); }
+function employeesByTeam(team){ return state.employees.filter(e=>e.team===team).sort((a,b)=>a.nickname.localeCompare(b.nickname)); }
+
+/* ============ Block helpers ============ */
+function ownerBlocks(){
+  const data = state.planData; const byOwner={};
+  data.coupons.forEach(c=>{ if(c.owner) (byOwner[c.owner]=byOwner[c.owner]||[]).push(c.no); });
+  const blocks=[];
+  Object.keys(byOwner).sort().forEach(owner=>{ compressRanges(byOwner[owner]).forEach(r=> blocks.push({owner, from:r[0], to:r[1]})); });
+  return blocks;
+}
+function unclaimedBlocks(){
+  const data = state.planData;
+  const nums = data.coupons.filter(c=>!c.owner && !c.destroyed).map(c=>c.no);
+  return compressRanges(nums).map(r=>({from:r[0], to:r[1]}));
+}
+
+/* ============ Supabase client ============ */
+const SUPABASE_URL = 'https://mfgvjjitfcfyxwnvfwiu.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1mZ3Zqaml0ZmNmeXh3bnZmd2l1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4MzU0ODAsImV4cCI6MjEwMTQxMTQ4MH0.INT6OJHi37_OMqntpgwmNNafEWxDNJ22v9JCXi9y224';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const PHOTO_BUCKET = 'destroy-photos';
+
+/* ============ Row <-> app-state mapping ============ */
+function mapPlanRow(p, counts){
+  const c = counts[p.id] || {assigned:0, destroyed:0};
+  return {
+    id: p.id, name: p.name, branchCode: p.branch_code, province: p.province, taskType: p.task_type,
+    totalCoupons: p.total_coupons, team: p.team, needsBurmese: p.needs_burmese,
+    startDate: p.start_date, endDate: p.end_date, createdAt: new Date(p.created_at).getTime(),
+    archived: p.archived, assignedCount: c.assigned, destroyedCount: c.destroyed,
+  };
+}
+function mapTxRow(t){
+  return {
+    id: t.id, timestamp: new Date(t.ts).getTime(), actionType: t.action_type,
+    rangeFrom: t.range_from, rangeTo: t.range_to, ranges: t.ranges, count: t.count,
+    previousOwner: t.previous_owner, newOwner: t.new_owner, note: t.note, photo: t.photo_url,
+  };
+}
+
+/* ============ Bootstrap ============ */
+async function init(){
+  await loadAllData();
+  render();
+}
+
+async function loadAllData(){
+  try{
+    const [{data: plans, error: e1}, {data: coupons, error: e2}, {data: employees, error: e3}, {data: types, error: e4}] = await Promise.all([
+      sb.from('plans').select('*'),
+      sb.from('coupons').select('plan_id, owner, destroyed'),
+      sb.from('employees').select('*'),
+      sb.from('coupon_types').select('*'),
+    ]);
+    if(e1||e2||e3||e4){ console.error(e1,e2,e3,e4); showToast('เชื่อมต่อฐานข้อมูลไม่สำเร็จ ลองรีเฟรชหน้าใหม่'); return; }
+    const counts = {};
+    (coupons||[]).forEach(c=>{
+      if(!counts[c.plan_id]) counts[c.plan_id] = {assigned:0, destroyed:0};
+      if(c.destroyed) counts[c.plan_id].destroyed++; else if(c.owner) counts[c.plan_id].assigned++;
+    });
+    state.plans = (plans||[]).map(p=>mapPlanRow(p, counts));
+    state.employees = (employees||[]).map(e=>({team:e.team, area:e.area, code:e.code, name:e.name, nickname:e.nickname, gender:e.gender}));
+    state.couponTypes = (types||[]).map(t=>({name:t.name, count:t.count}));
+  } catch(err){
+    console.error(err); showToast('เชื่อมต่อฐานข้อมูลไม่สำเร็จ ลองรีเฟรชหน้าใหม่');
+  }
+}
+
+/* ============ Navigation ============ */
+async function openPlan(id){
+  state.currentPlanId = id; state.view='plan'; state.planTab='grid'; state.editingTeam=false;
+  state.planData = {coupons:[], transactions:[]};
+  render();
+  await refreshCurrentPlan();
+  render();
+}
+async function refreshCurrentPlan(){
+  const plan = currentPlan(); if(!plan) return;
+  const [{data: coupons, error: e1}, {data: txs, error: e2}] = await Promise.all([
+    sb.from('coupons').select('no, owner, destroyed').eq('plan_id', plan.id).order('no'),
+    sb.from('transactions').select('*').eq('plan_id', plan.id).order('ts', {ascending:false}),
+  ]);
+  if(e1||e2){ console.error(e1,e2); showToast('โหลดข้อมูลแผนงานไม่สำเร็จ'); return; }
+  state.planData = { coupons: coupons||[], transactions: (txs||[]).map(mapTxRow) };
+  plan.assignedCount = state.planData.coupons.filter(c=>c.owner).length;
+  plan.destroyedCount = state.planData.coupons.filter(c=>c.destroyed).length;
+}
+function goHome(){ state.view='home'; state.currentPlanId=null; state.planData=null; render(); }
+function goHelp(){ state.view='help'; render(); }
+function openModal(name){ state.modal=name; state.modalError=''; state.modalTab='single'; state.destroyPhoto=null;
+  if(name==='settingsTypes'){ state.typeEditRows = state.couponTypes.map(t=>({...t})); }
+  render();
+}
+function closeModal(){ state.modal=null; state.modalError=''; state.destroyPhoto=null; render(); }
+function currentPlan(){ return state.plans.find(p=>p.id===state.currentPlanId); }
+
+/* ============ Plan CRUD ============ */
+async function createPlanSingle(fields){
+  const name = fields.name.trim();
+  if(!name){ state.modalError='กรุณาใส่ชื่อสาขา/แผนงาน'; render(); return; }
+  let total, taskType;
+  if(fields.typeMode==='custom'){
+    const cname = fields.customName.trim(); const ccount = parseInt(fields.customCount,10);
+    if(!cname || !ccount || ccount<1){ state.modalError='กรุณาใส่ชื่อประเภทงานและจำนวนคูปองให้ถูกต้อง'; render(); return; }
+    taskType = cname; total = ccount;
+    if(!state.couponTypes.find(t=>t.name===cname)){
+      await sb.from('coupon_types').upsert({name:cname, count:ccount}, {onConflict:'name'});
+      state.couponTypes.push({name:cname, count:ccount});
+    }
+  } else {
+    const t = state.couponTypes.find(t=>t.name===fields.typeName);
+    if(!t){ state.modalError='กรุณาเลือกประเภทงาน'; render(); return; }
+    taskType = t.name; total = t.count;
+  }
+  const id = 'p_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+  const { error: e1 } = await sb.from('plans').insert({
+    id, name, branch_code: fields.branchCode.trim(), province: fields.province.trim(),
+    task_type: taskType, total_coupons: total, team: fields.team || null, needs_burmese: fields.needsBurmese,
+    start_date: fields.startDate || null, end_date: fields.endDate || null, archived: false,
+  });
+  if(e1){ console.error(e1); state.modalError='บันทึกแผนงานไม่สำเร็จ: '+e1.message; render(); return; }
+  if(total>0){
+    const rows = Array.from({length: total}, (_,i)=>({plan_id:id, no:i+1, owner:null, destroyed:false}));
+    const { error: e2 } = await sb.from('coupons').insert(rows);
+    if(e2) console.error(e2);
+  }
+  await loadAllData();
+  closeModal();
+  showToast(`สร้างแผนงาน "${name}" เรียบร้อย — คูปอง 1–${total} (ล็อคตามประเภท "${taskType}")`);
+  openPlan(id);
+}
+
+async function toggleArchive(id){
+  const plan = state.plans.find(p=>p.id===id); if(!plan) return;
+  const newVal = !plan.archived;
+  const { error } = await sb.from('plans').update({archived:newVal}).eq('id', id);
+  if(error){ console.error(error); showToast('อัปเดตไม่สำเร็จ'); return; }
+  plan.archived = newVal;
+  showToast(plan.archived ? 'ย้ายแผนงานไปเก็บถาวรแล้ว' : 'กู้คืนแผนงานแล้ว'); render();
+}
+
+async function assignTeam(team){
+  if(!team){ state.modalError='กรุณาเลือกทีม'; render(); return; }
+  const plan = currentPlan();
+  const { error } = await sb.from('plans').update({team}).eq('id', plan.id);
+  if(error){ console.error(error); showToast('บันทึกทีมไม่สำเร็จ'); return; }
+  plan.team = team; state.editingTeam = false;
+  showToast(`กำหนดทีม ${team} ให้แผนงาน "${plan.name}" แล้ว`); render();
+}
+
+async function claimCoupons(employee, count){
+  employee = employee.trim(); count = parseInt(count,10);
+  const plan = currentPlan(); const data = state.planData;
+  if(!plan.team){ state.modalError='กรุณากำหนดทีมที่รับผิดชอบแผนงานนี้ก่อน'; render(); return; }
+  if(!employee){ state.modalError='กรุณาเลือกหรือกรอกชื่อพนักงาน'; render(); return; }
+  if(!count || count<1){ state.modalError='จำนวนที่เบิกต้องมากกว่า 0'; render(); return; }
+  const maxAssigned = data.coupons.reduce((m,c)=> c.owner ? Math.max(m,c.no) : m, 0);
+  const start = maxAssigned+1;
+  const remaining = plan.totalCoupons - maxAssigned;
+  if(remaining <= 0){ state.modalError='คูปองในแผนงานนี้ถูกเบิกหมดแล้ว กด "ขอคูปองเพิ่ม" ก่อน'; render(); return; }
+  const actualCount = Math.min(count, remaining);
+  const end = start + actualCount - 1;
+  const { error: e1 } = await sb.from('coupons').update({owner:employee}).eq('plan_id', plan.id).gte('no', start).lte('no', end);
+  if(e1){ console.error(e1); state.modalError='บันทึกไม่สำเร็จ: '+e1.message; render(); return; }
+  const { error: e2 } = await sb.from('transactions').insert({
+    plan_id: plan.id, action_type:'เบิก', range_from:start, range_to:end, previous_owner:null, new_owner:employee, note:'' });
+  if(e2) console.error(e2);
+  await refreshCurrentPlan();
+  closeModal();
+  showToast(actualCount<count ? `เบิกให้ ${employee} ได้เพียง #${start}–${end} (${actualCount} ใบ) เพราะคูปองไม่พอ` : `${employee} เบิกคูปอง #${start}–${end} เรียบร้อย`);
+  render();
+}
+
+async function transferCoupons(from, to, newOwner){
+  from=parseInt(from,10); to=parseInt(to,10); newOwner=newOwner.trim();
+  const plan = currentPlan(); const data = state.planData;
+  if(!newOwner){ state.modalError='กรุณาเลือกหรือกรอกชื่อเจ้าของใหม่'; render(); return; }
+  if(!from || !to || from<1 || to>plan.totalCoupons || from>to){ state.modalError='ช่วงเบอร์ไม่ถูกต้อง'; render(); return; }
+  const segment=[]; for(let n=from;n<=to;n++){ segment.push(data.coupons.find(c=>c.no===n)); }
+  const unowned = segment.filter(c=>!c.owner);
+  if(unowned.length>0){ state.modalError = `เบอร์ ${unowned.map(c=>'#'+c.no).join(', ')} ยังไม่มีเจ้าของ ต้องเบิกก่อนจึงจะโอนได้`; render(); return; }
+  let segStart=segment[0].no, segOwner=segment[0].owner; const subTx=[];
+  for(let i=1;i<=segment.length;i++){
+    const c = segment[i];
+    if(!c || c.owner!==segOwner){ subTx.push({from:segStart, to:segment[i-1].no, prevOwner:segOwner}); if(c){ segStart=c.no; segOwner=c.owner; } }
+  }
+  for(const tx of subTx){
+    const { error: e1 } = await sb.from('coupons').update({owner:newOwner}).eq('plan_id', plan.id).gte('no', tx.from).lte('no', tx.to);
+    if(e1) console.error(e1);
+    const { error: e2 } = await sb.from('transactions').insert({
+      plan_id: plan.id, action_type:'โอน', range_from:tx.from, range_to:tx.to, previous_owner:tx.prevOwner, new_owner:newOwner, note:'' });
+    if(e2) console.error(e2);
+  }
+  await refreshCurrentPlan();
+  closeModal();
+  showToast(`โอนคูปอง #${from}–${to} ให้ ${newOwner} เรียบร้อย (${subTx.length} รายการ)`);
+  render();
+}
+
+async function returnCoupons(from, to){
+  from=parseInt(from,10); to=parseInt(to,10);
+  const plan = currentPlan(); const data = state.planData;
+  if(!from || !to || from<1 || to>plan.totalCoupons || from>to){ state.modalError='ช่วงเบอร์ไม่ถูกต้อง'; render(); return; }
+  const segment=[]; for(let n=from;n<=to;n++){ segment.push(data.coupons.find(c=>c.no===n)); }
+  const bad = segment.filter(c=>!c.owner);
+  if(bad.length>0){ state.modalError = `เบอร์ ${bad.map(c=>'#'+c.no).join(', ')} ยังไม่มีเจ้าของ คืนไม่ได้`; render(); return; }
+  const owners = new Set(segment.map(c=>c.owner));
+  if(owners.size>1){ state.modalError = 'ช่วงที่เลือกมีเจ้าของมากกว่าหนึ่งคน กรุณาเลือกช่วงของเจ้าของคนเดียวเท่านั้น'; render(); return; }
+  const ownerName = segment[0].owner;
+  const { error: e1 } = await sb.from('coupons').update({owner:null}).eq('plan_id', plan.id).gte('no', from).lte('no', to);
+  if(e1){ console.error(e1); state.modalError='บันทึกไม่สำเร็จ: '+e1.message; render(); return; }
+  const { error: e2 } = await sb.from('transactions').insert({
+    plan_id: plan.id, action_type:'คืน', range_from:from, range_to:to, previous_owner:ownerName, new_owner:null, note:'' });
+  if(e2) console.error(e2);
+  await refreshCurrentPlan();
+  closeModal();
+  showToast(`${ownerName} คืนคูปอง #${from}–${to} กลับสู่กองกลางแล้ว`);
+  render();
+}
+
+async function extendCoupons(amount, note){
+  amount = parseInt(amount,10);
+  const plan = currentPlan();
+  if(!amount || amount<1){ state.modalError='กรุณาใส่จำนวนที่ขอเพิ่มให้ถูกต้อง'; render(); return; }
+  const oldTotal = plan.totalCoupons; const newFrom = oldTotal+1, newTo = oldTotal+amount;
+  const rows = Array.from({length:amount}, (_,i)=>({plan_id:plan.id, no:newFrom+i, owner:null, destroyed:false}));
+  const { error: e1 } = await sb.from('coupons').insert(rows);
+  if(e1){ console.error(e1); state.modalError='บันทึกไม่สำเร็จ: '+e1.message; render(); return; }
+  const { error: e2 } = await sb.from('plans').update({total_coupons:newTo}).eq('id', plan.id);
+  if(e2) console.error(e2);
+  const { error: e3 } = await sb.from('transactions').insert({
+    plan_id: plan.id, action_type:'ขยาย', range_from:newFrom, range_to:newTo, previous_owner:null, new_owner:null, note: note||'' });
+  if(e3) console.error(e3);
+  plan.totalCoupons = newTo;
+  await refreshCurrentPlan();
+  closeModal();
+  showToast(`ขยายจำนวนคูปองแผนงาน "${plan.name}" อีก ${amount} ใบ (รวม ${newTo} ใบ)`);
+  render();
+}
+
+function dataURLtoBlob(dataUrl){
+  const [header, base64] = dataUrl.split(',');
+  const mime = header.match(/:(.*?);/)[1];
+  const binary = atob(base64);
+  const arr = new Uint8Array(binary.length);
+  for(let i=0;i<binary.length;i++) arr[i]=binary.charCodeAt(i);
+  return new Blob([arr], {type:mime});
+}
+
+async function destroyAllRemaining(destroyedBy, note, photo){
+  const plan = currentPlan();
+  destroyedBy = (destroyedBy||'').trim();
+  if(!canDestroyToday(plan)){ state.modalError='ทำลายคูปองได้เฉพาะวันสุดท้ายของงานเท่านั้น'; render(); return; }
+  if(!destroyedBy){ state.modalError='กรุณาเลือกหรือกรอกชื่อผู้ทำลาย'; render(); return; }
+  if(!photo){ state.modalError='กรุณาแนบรูปหลักฐานการทำลายคูปอง'; render(); return; }
+  const blocks = unclaimedBlocks();
+  if(blocks.length===0){ state.modalError='ไม่มีคูปองเหลือให้ทำลาย'; render(); return; }
+
+  let photoUrl = null;
+  try{
+    const fileName = `${plan.id}-${Date.now()}.jpg`;
+    const blob = dataURLtoBlob(photo);
+    const { error: upErr } = await sb.storage.from(PHOTO_BUCKET).upload(fileName, blob, {contentType:'image/jpeg'});
+    if(upErr) throw upErr;
+    const { data: urlData } = sb.storage.from(PHOTO_BUCKET).getPublicUrl(fileName);
+    photoUrl = urlData.publicUrl;
+  } catch(err){
+    console.error(err);
+    state.modalError = 'อัปโหลดรูปไม่สำเร็จ: '+(err.message||'ตรวจสอบว่าสร้าง Storage bucket ชื่อ "destroy-photos" แบบ Public ไว้แล้วหรือยัง');
+    render(); return;
+  }
+
+  let count=0;
+  for(const b of blocks){
+    const { error } = await sb.from('coupons').update({destroyed:true}).eq('plan_id', plan.id).gte('no', b.from).lte('no', b.to);
+    if(error){ console.error(error); } else { count += (b.to-b.from+1); }
+  }
+  const { error: e2 } = await sb.from('transactions').insert({
+    plan_id: plan.id, action_type:'ทำลาย', ranges: blocks.map(b=>[b.from,b.to]), count,
+    previous_owner:null, new_owner:destroyedBy, note: note||'', photo_url: photoUrl });
+  if(e2) console.error(e2);
+  await refreshCurrentPlan();
+  closeModal();
+  showToast(`ทำลายคูปองที่เหลือทั้งหมด ${count} ใบเรียบร้อย ปิดงานสมบูรณ์ — ไม่มีคูปองเหลือค้างในระบบ`);
+  render();
+}
+
+/* ============ Coupon-type settings ============ */
+async function saveTypeSettings(){
+  const rows = state.typeEditRows.filter(r=>r.name && r.name.trim())
+    .map(r=>({name:r.name.trim(), count: parseInt(r.count,10)||0}));
+  const { error: delErr } = await sb.from('coupon_types').delete().not('id','is',null);
+  if(delErr) console.error(delErr);
+  if(rows.length){
+    const { error: insErr } = await sb.from('coupon_types').insert(rows);
+    if(insErr) console.error(insErr);
+  }
+  state.couponTypes = rows;
+  closeModal(); showToast('บันทึกการตั้งค่าประเภทงานแล้ว (มีผลกับแผนงานใหม่เท่านั้น)');
+}
+
+/* ============ Reset all plans ============ */
+async function resetAllPlans(){
+  if(state.plans.length===0){ showToast('ไม่มีแผนงานอยู่แล้ว'); return; }
+  if(!window.confirm(`ลบแผนงานทั้งหมด ${state.plans.length} รายการออกจากระบบ? ข้อมูลเบิก/โอน/ประวัติทั้งหมดจะหายไปและกู้คืนไม่ได้`)) return;
+  const { error } = await sb.from('plans').delete().not('id','is',null);
+  if(error){ console.error(error); showToast('ลบไม่สำเร็จ: '+error.message); return; }
+  state.plans = [];
+  showToast('ลบแผนงานทั้งหมดแล้ว พร้อมนำเข้าไฟล์ใหม่');
+  render();
+}
+
+/* ============ Excel import ============ */
+function readWorkbook(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = (e)=>{ try{ resolve(XLSX.read(new Uint8Array(e.target.result), {type:'array'})); } catch(err){ reject(err); } };
+    reader.onerror = ()=> reject(new Error('อ่านไฟล์ไม่สำเร็จ'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+function excelSerialToIso(serial){
+  const utcDays = Math.floor(serial) - 25569;
+  const d = new Date(utcDays * 86400 * 1000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+}
+function toIsoDate(v){
+  if(v===null || v===undefined || v==='') return null;
+  if(typeof v === 'number') return excelSerialToIso(v);
+  if(v instanceof Date) return `${v.getUTCFullYear()}-${String(v.getUTCMonth()+1).padStart(2,'0')}-${String(v.getUTCDate()).padStart(2,'0')}`;
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v));
+  if(isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  const d = new Date(v);
+  if(isNaN(d)) return null;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+}
+function pickTeamColumn(row){
+  const candidates = ['ทีม','ทีมที่ไปจัด','ทีมที่รับผิดชอบ','ทีมงาน','Team'];
+  for(const key of candidates){ if(row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== ''){ return String(row[key]).trim(); } }
+  return null;
+}
+
+async function handleImportPlansFile(file){
+  try{
+    const wb = await readWorkbook(file);
+    const planSheetName = wb.SheetNames.find(n=>n.trim()==='แผนงาน') || wb.SheetNames[0];
+    const typeSheetName = wb.SheetNames.find(n=>n.trim()==='จำนวนคูปอง');
+    const planRows = XLSX.utils.sheet_to_json(wb.Sheets[planSheetName], {defval:null, raw:true});
+
+    if(typeSheetName){
+      const typeRows = XLSX.utils.sheet_to_json(wb.Sheets[typeSheetName], {defval:null, raw:true});
+      for(const r of typeRows){
+        const tname=(r['ประเภทงาน']||'').toString().trim(); const tcount=parseInt(r['จำนวนคูปอง'],10);
+        if(!tname || !tcount) continue;
+        await sb.from('coupon_types').upsert({name:tname, count:tcount}, {onConflict:'name'});
+        const existing = state.couponTypes.find(t=>t.name===tname);
+        if(existing) existing.count = tcount; else state.couponTypes.push({name:tname, count:tcount});
+      }
+    }
+
+    const existingKeys = new Set(state.plans.map(p=>`${p.branchCode}|${p.startDate}|${p.taskType}`));
+    let added=0, skipped=0, noType=0, withTeam=0;
+    for(const row of planRows){
+      const branchName = (row['สาขา']||'').toString().trim(); if(!branchName) continue;
+      const branchCode = (row['รหัสสาขา']||'').toString().trim();
+      const taskType = (row['ประเภทงาน']||'').toString().trim();
+      const startDate = toIsoDate(row['วันที่เริ่มงาน']);
+      const key = `${branchCode}|${startDate}|${taskType}`;
+      if(existingKeys.has(key)){ skipped++; continue; }
+      const typeInfo = state.couponTypes.find(t=>t.name===taskType);
+      if(!typeInfo) noType++;
+      const total = typeInfo ? typeInfo.count : 0;
+      const burmeseRaw = (row['ชาวพม่า']||'').toString().trim();
+      const team = pickTeamColumn(row);
+      if(team) withTeam++;
+      const id = 'p_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7)+added;
+      const { error: e1 } = await sb.from('plans').insert({
+        id, name: branchName, branch_code: branchCode, province: (row['จังหวัด']||'').toString().trim(),
+        task_type: taskType||'ไม่ระบุ', total_coupons: total, team,
+        needs_burmese: burmeseRaw!=='' && burmeseRaw!=='-', start_date: startDate, end_date: toIsoDate(row['วันที่จบงาน']),
+        archived:false,
+      });
+      if(e1){ console.error(e1); continue; }
+      if(total>0){
+        const rows = Array.from({length: total}, (_,i)=>({plan_id:id, no:i+1, owner:null, destroyed:false}));
+        const { error: e2 } = await sb.from('coupons').insert(rows);
+        if(e2) console.error(e2);
+      }
+      existingKeys.add(key); added++;
+    }
+    await loadAllData();
+    closeModal();
+    let msg = `นำเข้า ${added} แผนงานใหม่`;
+    if(withTeam) msg += ` (พบคอลัมน์ทีม กำหนดทีมอัตโนมัติให้ ${withTeam} รายการ)`;
+    if(skipped) msg += ` — ข้าม ${skipped} รายการซ้ำ`;
+    if(noType) msg += ` — ${noType} รายการไม่พบประเภทงานในระบบ ถูกล็อคที่ 0 ใบ`;
+    showToast(msg); render();
+  }catch(err){ state.modalError = 'อ่านไฟล์ไม่สำเร็จ: '+err.message; render(); }
+}
+
+async function handleImportEmployeesFile(file){
+  try{
+    const wb = await readWorkbook(file);
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, {defval:null, raw:true});
+    const emps = rows.map(r=>({
+      team:(r['ทีม']||'').toString().trim(), area:(r['Area']||'').toString().trim(),
+      code:(r['รหัสพนักงาน']||'').toString().trim(), name:(r['ชื่อพนักงาน']||'').toString().trim(),
+      nickname:(r['ชื่อเล่น']||'').toString().trim(), gender:(r['เพศ']||'').toString().trim(),
+    })).filter(e=>e.name);
+    if(emps.length===0){ state.modalError='ไม่พบข้อมูลพนักงานในไฟล์นี้'; render(); return; }
+    const { error: delErr } = await sb.from('employees').delete().not('id','is',null);
+    if(delErr) console.error(delErr);
+    const { error: insErr } = await sb.from('employees').insert(emps);
+    if(insErr){ state.modalError = 'บันทึกไม่สำเร็จ: '+insErr.message; render(); return; }
+    state.employees = emps;
+    closeModal(); showToast(`นำเข้ารายชื่อพนักงาน ${emps.length} คนเรียบร้อย (แทนที่รายชื่อเดิมทั้งหมด)`); render();
+  }catch(err){ state.modalError = 'อ่านไฟล์ไม่สำเร็จ: '+err.message; render(); }
+}
+
+/* ============ Photo handling ============ */
+function resizeImageFile(file, maxDim, quality){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = (e)=>{
+      const img = new Image();
+      img.onload = ()=>{
+        let w=img.width, h=img.height;
+        if(w>h){ if(w>maxDim){ h=Math.round(h*maxDim/w); w=maxDim; } } else { if(h>maxDim){ w=Math.round(w*maxDim/h); h=maxDim; } }
+        const canvas=document.createElement('canvas'); canvas.width=w; canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = ()=> reject(new Error('โหลดรูปไม่สำเร็จ'));
+      img.src = e.target.result;
+    };
+    reader.onerror = ()=> reject(new Error('อ่านไฟล์รูปไม่สำเร็จ'));
+    reader.readAsDataURL(file);
+  });
+}
+async function handleDestroyPhoto(file){
+  try{ state.destroyPhoto = await resizeImageFile(file, 700, 0.6); render(); }
+  catch(err){ state.modalError = err.message; render(); }
+}
+
+/* ============ Excel export ============ */
+function downloadXlsx(filename, sheetsObj){
+  const wb = XLSX.utils.book_new();
+  Object.entries(sheetsObj).forEach(([name, rows])=>{
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31));
+  });
+  XLSX.writeFile(wb, filename);
+}
+function exportHistoryXlsx(){
+  const data = state.planData; const plan = currentPlan();
+  const rows = [['วันที่เวลา','ประเภท','ช่วงเบอร์','เจ้าของเดิม','เจ้าของใหม่ / ผู้ดำเนินการ','หมายเหตุ','มีรูปแนบ']];
+  [...data.transactions].sort((a,b)=>b.timestamp-a.timestamp).forEach(t=>{
+    rows.push([fmtDate(t.timestamp), t.actionType, txRangeLabel(t), t.previousOwner||'-', t.newOwner||'-', t.note||'', t.photo?'มี':'-']);
+  });
+  downloadXlsx(`ประวัติ-${plan.name}.xlsx`, {'ประวัติ':rows}); showToast('ดาวน์โหลดไฟล์ Excel ประวัติแล้ว');
+}
+function exportSummaryXlsx(){
+  const data = state.planData; const plan = currentPlan();
+  const byOwner = {}; data.coupons.forEach(c=>{ if(c.owner) (byOwner[c.owner]=byOwner[c.owner]||[]).push(c.no); });
+  const rows = [['เจ้าของ','จำนวน (ใบ)','ช่วงเบอร์']];
+  Object.keys(byOwner).sort().forEach(owner=>{ rows.push([owner, byOwner[owner].length, compressRanges(byOwner[owner]).map(rangeLabel).join(' , ')]); });
+  const destroyedNums = data.coupons.filter(c=>c.destroyed).map(c=>c.no);
+  if(destroyedNums.length) rows.push(['(ทำลายแล้ว)', destroyedNums.length, compressRanges(destroyedNums).map(rangeLabel).join(' , ')]);
+  downloadXlsx(`สรุปคงเหลือ-${plan.name}.xlsx`, {'สรุปคงเหลือ':rows}); showToast('ดาวน์โหลดไฟล์ Excel สรุปแล้ว');
+}
+function exportAllPlansXlsx(){
+  const rows = [['รหัสสาขา','สาขา/แผนงาน','จังหวัด','ทีม','ประเภทงาน','ต้องการสื่อพม่า','เบิกแล้ว','ทำลายแล้ว','ทั้งหมด','วันที่เริ่ม','วันที่จบ','สถานะ']];
+  state.plans.filter(p=>!p.archived).forEach(p=>{
+    rows.push([p.branchCode, p.name, p.province, p.team||'ยังไม่กำหนด', p.taskType, p.needsBurmese?'ใช่':'-', p.assignedCount||0, p.destroyedCount||0, p.totalCoupons, p.startDate||'-', p.endDate||'-', STATUS_LABEL[planStatus(p)]]);
+  });
+  downloadXlsx('แผนงานทั้งหมด.xlsx', {'แผนงานทั้งหมด':rows}); showToast('ดาวน์โหลดไฟล์ Excel แผนงานทั้งหมดแล้ว');
+}
+
+/* ============ Render: shell ============ */
+function render(){
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div class="masthead"><div class="masthead-row">
+      <div class="brand-title">
+        <div class="brand-mark-wrap"><div class="brand-mark"><span class="c">C</span><span class="j">J</span><span class="x">X</span></div><div class="brand-mark-rule"></div></div>
+        <div><h1>สมุดเบิกคูปอง</h1><div class="sub">Coupon Ownership Ledger</div></div>
+      </div>
+      <div class="masthead-actions">
+        <button class="btn btn-sm btn-ghost" data-act="goHelp">📘 คู่มือการใช้งาน</button>
+        ${state.view==='home' ? `
+          <button class="btn btn-sm btn-ghost" data-act="importEmployees">นำเข้ารายชื่อพนักงาน</button>
+          <button class="btn btn-sm btn-ghost" data-act="settingsTypes">ตั้งค่าประเภทงาน</button>
+          ${state.plans.length>0 ? `<button class="btn btn-sm btn-ghost" data-act="resetPlans" style="color:var(--brand-red);">ล้างแผนงานทั้งหมด</button>` : ''}
+        ` : ''}
+      </div>
+    </div></div>
+    ${state.view==='home' ? `<div class="crumbs">แผนงานทั้งหมด (${state.plans.filter(p=>!p.archived).length})</div>` : (state.view==='plan' ? renderCrumbsPlan() : `<div class="crumbs"><a data-act="home">แผนงานทั้งหมด</a> / คู่มือการใช้งาน</div>`)}
+    ${state.view==='home' ? renderHome() : (state.view==='plan' ? renderPlan() : renderHelp())}
+    ${renderModal()}
+    ${state.viewPhotoUrl ? `<div class="overlay" data-act="closePhoto"><div class="photo-lightbox"><img src="${state.viewPhotoUrl}"></div></div>` : ''}
+    <div class="mobile-nav">
+      <button data-act="home" class="${state.view==='home'?'active':''}"><span class="ico">🏠</span>หน้าแรก</button>
+      ${state.currentPlanId ? `<button data-act="reopenPlan" class="${state.view==='plan'?'active':''}"><span class="ico">🎟️</span>แผนงาน</button>` : ''}
+      <button data-act="goHelp" class="${state.view==='help'?'active':''}"><span class="ico">📘</span>คู่มือ</button>
+    </div>
+  `;
+  attachHandlers();
+}
+function renderCrumbsPlan(){ const plan=currentPlan(); return `<div class="crumbs"><a data-act="home">แผนงานทั้งหมด</a> / ${escapeHtml(plan.name)}</div>`; }
+
+/* ============ Render: help page ============ */
+function renderHelp(){
+  return `
+    <div class="help-hero">📘 คู่มือนี้สำหรับพนักงานหน้างาน อ่านเพื่อใช้ระบบเบิก-โอน-คืน-ทำลายคูปองให้ถูกต้อง</div>
+    <div class="panel">
+      <div class="help-step"><div class="num">1</div><div><h4>เบิกคูปอง</h4><p>เข้าไปในแผนงานของทีมตัวเอง กดปุ่ม "เบิกคูปอง" เลือกชื่อตัวเองจากรายชื่อทีม (หรือกด "พิมพ์เอง" ถ้าไม่เจอชื่อ) ใส่จำนวนที่จะเบิก ระบบจะให้เลขต่อจากคนก่อนหน้าอัตโนมัติ ไม่ต้องนับเอง</p></div></div>
+      <div class="help-step"><div class="num">2</div><div><h4>โอน / สลับคูปอง</h4><p>ถ้าจะยกเลขที่เบิกไปแล้วให้เพื่อนในทีม กดปุ่ม "โอน/สลับ" เลือกช่วงจากรายการที่เบิกแล้ว แล้วเลือกคนที่จะรับ</p></div></div>
+      <div class="help-step"><div class="num">3</div><div><h4>คืนคูปอง</h4><p>ถ้าเบิกมาแล้วแจกไม่หมด ให้กด "คืนคูปอง" เลือกช่วงที่จะคืนกลับกองกลาง เพื่อให้คนอื่นเบิกต่อได้หรือรอทำลายในวันสุดท้าย</p></div></div>
+      <div class="help-step"><div class="num">4</div><div><h4>ขอคูปองเพิ่ม</h4><p>ถ้าคูปองในแผนงานหมดแต่ยังแจกไม่พอ กดปุ่ม "ขอคูปองเพิ่ม" ใส่จำนวนที่ต้องการ ระบบจะขยายเลขต่อให้อัตโนมัติ</p></div></div>
+      <div class="help-step"><div class="num destroy">5</div><div><h4>ทำลายคูปอง (วันสุดท้ายของงานเท่านั้น)</h4><p>เมื่อถึงวันสุดท้ายของงานและมีคูปองเหลือ ต้องกด "ทำลายคูปองที่เหลือทั้งหมด" ระบบจะรวมคูปองที่เหลือทุกช่วงมาทำลายในครั้งเดียว <b>ต้องถ่ายรูปตอนทำลายแนบเป็นหลักฐานเสมอ</b> ห้ามมีคูปองเหลือค้างในระบบหลังจบงาน ปุ่มนี้จะกดไม่ได้ถ้ายังไม่ถึงวันสุดท้าย</p></div></div>
+      <div class="help-step"><div class="num">6</div><div><h4>ดูประวัติ / ส่งออกข้อมูล</h4><p>แท็บ "ประวัติธุรกรรม" ในแต่ละแผนงานจะเก็บทุกการเบิก โอน คืน ขยาย ทำลาย ไว้ตรวจสอบย้อนหลังได้ กดปุ่ม "ส่งออก Excel" เพื่อดาวน์โหลดไปส่งหัวหน้างานได้ทันที</p></div></div>
+      <div class="help-step"><div class="num">?</div><div><h4>ทำไมกดปุ่มไม่ได้</h4><p>ถ้าปุ่มเบิก/โอน/คืน กดไม่ได้ แสดงว่าแผนงานนี้ยังไม่ถูกกำหนดทีม ให้แจ้งหัวหน้างานหรือแอดมินกำหนดทีมก่อน ส่วนปุ่มทำลายจะกดได้เฉพาะวันสุดท้ายของงานเท่านั้น</p></div></div>
+    </div>
+  `;
+}
+
+/* ============ Render: home ============ */
+function renderHome(){
+  const f = state.homeFilter;
+  const types = [...new Set(state.plans.map(p=>p.taskType))].sort();
+  const teams = teamsList();
+  let list = state.plans.filter(p=>!p.archived);
+  if(f.search){ const s=f.search.toLowerCase(); list = list.filter(p => (p.name+p.branchCode+p.province).toLowerCase().includes(s)); }
+  if(f.type) list = list.filter(p=>p.taskType===f.type);
+  if(f.status!=='all') list = list.filter(p=>planStatus(p)===f.status);
+  if(f.team) list = list.filter(p=>p.team===f.team);
+  function isClosedPlan(p){
+    const remaining = p.totalCoupons - (p.assignedCount||0) - (p.destroyedCount||0);
+    return remaining<=0 && (p.assignedCount||0)+(p.destroyedCount||0)>0;
+  }
+  list.sort((a,b)=>{
+    const ca = isClosedPlan(a) ? 1 : 0, cb = isClosedPlan(b) ? 1 : 0;
+    if(ca!==cb) return ca-cb; // closed plans sink to the bottom
+    return (a.startDate||'9999').localeCompare(b.startDate||'9999');
+  });
+  const archived = state.plans.filter(p=>p.archived);
+
+  const folder = p => {
+    const status = planStatus(p);
+    const pct = p.totalCoupons ? Math.min(100, Math.round((p.assignedCount||0)/p.totalCoupons*100)) : 0;
+    const remaining = p.totalCoupons - (p.assignedCount||0) - (p.destroyedCount||0);
+    const closed = remaining<=0 && (p.assignedCount||0)+(p.destroyedCount||0)>0;
+    return `
+    <div class="folder status-${closed?'closed':status}" data-act="open" data-id="${p.id}">
+      ${p.archived ? '<div class="tag-archived">เก็บถาวร</div>' : ''}
+      <h3>${escapeHtml(p.name)}</h3>
+      <div class="meta">${escapeHtml(p.branchCode||'-')} · ${escapeHtml(p.province||'-')}</div>
+      <div class="chips">
+        <span class="chip chip-type">${escapeHtml(p.taskType)}</span>
+        <span class="chip ${closed?'chip-status-closed':'chip-status-'+status}">${closed?'ปิดงานแล้ว':STATUS_LABEL[status]}</span>
+        <span class="chip ${p.team?'chip-team':'chip-noteam'}">${p.team ? escapeHtml(p.team) : 'ยังไม่กำหนดทีม'}</span>
+        ${p.needsBurmese ? '<span class="chip chip-burmese">ต้องการสื่อพม่า</span>' : ''}
+      </div>
+      <div class="meta">${fmtDateShort(p.startDate)} – ${fmtDateShort(p.endDate)}</div>
+      <div class="bar"><div class="bar-fill ${pct>=100?'full':''}" style="width:${pct}%"></div></div>
+      <div class="count-line">เบิกแล้ว ${p.assignedCount||0} / ${p.totalCoupons} ใบ${p.destroyedCount ? ` · ทำลายแล้ว ${p.destroyedCount} ใบ` : ''}</div>
+      <div style="margin-top:8px;"><button class="btn btn-sm btn-ghost" data-act="archive" data-id="${p.id}">${p.archived?'กู้คืน':'เก็บถาวร'}</button></div>
+    </div>`;
+  };
+
+  return `
+    <div class="filters">
+      <input type="text" placeholder="ค้นหาสาขา / รหัส / จังหวัด..." value="${escapeHtml(f.search)}" data-act="homeSearch">
+      <select data-act="homeType"><option value="">ทุกประเภทงาน</option>${types.map(t=>`<option value="${escapeHtml(t)}" ${f.type===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}</select>
+      <select data-act="homeTeam"><option value="">ทุกทีม</option>${teams.map(t=>`<option value="${escapeHtml(t)}" ${f.team===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}</select>
+      <select data-act="homeStatus">
+        <option value="all" ${f.status==='all'?'selected':''}>ทุกสถานะ</option>
+        <option value="upcoming" ${f.status==='upcoming'?'selected':''}>ยังไม่เริ่ม</option>
+        <option value="active" ${f.status==='active'?'selected':''}>กำลังดำเนินการ</option>
+        <option value="done" ${f.status==='done'?'selected':''}>จบแล้ว</option>
+      </select>
+      <button class="btn btn-sm btn-ghost" data-act="exportAllPlans">ส่งออก Excel ทั้งหมด</button>
+    </div>
+    <div class="folder-grid">${list.map(folder).join('')}<div class="new-folder" data-act="newPlan">+ สร้าง / นำเข้าแผนงาน</div></div>
+    ${archived.length ? `<div style="margin-top:26px;"><div class="panel-title" style="border-bottom:2px solid var(--line); padding-bottom:8px;">แผนงานที่เก็บถาวร (${archived.length})</div><div class="folder-grid" style="margin-top:12px;">${archived.map(folder).join('')}</div></div>` : ''}
+    ${state.plans.length===0 ? `<div class="empty-state"><div class="big">ยังไม่มีแผนงาน</div><div>สร้างแผนงานแรก หรือนำเข้าจากไฟล์ Excel</div></div>` : ''}
+    ${list.length===0 && state.plans.length>0 ? `<div class="empty-state">ไม่พบแผนงานที่ตรงกับตัวกรอง</div>` : ''}
+  `;
+}
+
+/* ============ Render: plan detail ============ */
+function renderPlan(){
+  const plan = currentPlan(); const data = state.planData;
+  const assignedCount = data.coupons.filter(c=>c.owner).length;
+  const destroyedCount = data.coupons.filter(c=>c.destroyed).length;
+  const remaining = plan.totalCoupons - assignedCount - destroyedCount;
+  const byOwner = {}; data.coupons.forEach(c=>{ if(c.owner) (byOwner[c.owner]=byOwner[c.owner]||[]).push(c.no); });
+  const owners = Object.keys(byOwner).sort();
+  const status = planStatus(plan);
+
+  const gridCells = data.coupons.map(c=>{
+    let cls='', style='', title='ยังไม่มีเจ้าของ';
+    if(c.destroyed){ cls='destroyed'; title='ทำลายแล้ว'; }
+    else if(c.owner){ cls='owned'; style=`background:${colorForKey(c.owner)};`; title=c.owner; }
+    return `<div class="coupon ${cls}" style="${style}" title="${escapeHtml(title)}">${c.no}</div>`;
+  }).join('');
+  const legend = owners.map(o=>`<div class="legend-chip"><span class="legend-swatch" style="background:${colorForKey(o)}"></span>${escapeHtml(o)}</div>`).join('')
+    + (destroyedCount ? `<div class="legend-chip"><span class="legend-swatch destroyed-swatch"></span>ทำลายแล้ว</div>` : '');
+  const summaryRows = owners.length ? owners.map(o=>{
+    const ranges = compressRanges(byOwner[o]).map(rangeLabel).join(' , ');
+    return `<tr><td><span class="owner-swatch" style="background:${colorForKey(o)}"></span>${escapeHtml(o)}</td><td>${byOwner[o].length}</td><td>${ranges}</td></tr>`;
+  }).join('') : `<tr><td colspan="3" class="empty-row">ยังไม่มีใครเบิกคูปอง</td></tr>`;
+
+  const filteredTx = [...data.transactions]
+    .filter(t => !state.historyFilterName || ((t.newOwner||'')+'|'+(t.previousOwner||'')).toLowerCase().includes(state.historyFilterName.toLowerCase()))
+    .filter(t => !state.historyFilterDate || new Date(t.timestamp).toISOString().slice(0,10) === state.historyFilterDate)
+    .sort((a,b)=>b.timestamp-a.timestamp);
+  const actionStyle = {'เบิก':'color:var(--act-claim);font-weight:800;', 'โอน':'color:var(--act-transfer);font-weight:800;', 'ขยาย':'color:var(--act-extend);font-weight:800;', 'คืน':'color:var(--act-return);font-weight:800;', 'ทำลาย':'color:var(--act-destroy);font-weight:800;'};
+  const historyRows = filteredTx.length ? filteredTx.map((t)=>`
+    <tr>
+      <td style="white-space:nowrap;">${fmtDate(t.timestamp)}</td>
+      <td><span style="${actionStyle[t.actionType]||''}">${escapeHtml(t.actionType)}</span></td>
+      <td>${txRangeLabel(t)}</td>
+      <td>${t.previousOwner ? escapeHtml(t.previousOwner) : '<span style="color:var(--ink-faint)">—</span>'}</td>
+      <td>${t.newOwner ? escapeHtml(t.newOwner) : '<span style="color:var(--ink-faint)">—</span>'}</td>
+      <td>${escapeHtml(t.note||'')} ${t.photo ? `<button type="button" class="link-btn" data-act="viewPhoto" data-photo-idx="${data.transactions.indexOf(t)}">ดูรูป</button>` : ''}</td>
+    </tr>`).join('') : `<tr><td colspan="6" class="empty-row">ไม่พบรายการ</td></tr>`;
+
+  let destroyBtn;
+  if(remaining<=0){ destroyBtn = `<button class="btn btn-ghost" disabled>✓ ไม่มีคูปองเหลือ</button>`; }
+  else if(!canDestroyToday(plan)){ destroyBtn = `<button class="btn btn-ghost" disabled title="ทำลายได้เฉพาะวันสุดท้ายของงาน">ทำลายคูปอง (รอวันสุดท้าย ${fmtDateShort(plan.endDate)})</button>`; }
+  else { destroyBtn = `<button class="btn btn-destroy" data-act="destroyCoupons">ทำลายคูปองที่เหลือทั้งหมด (${remaining} ใบ)</button>`; }
+
+  return `
+    <div class="plan-head">
+      <div><h2>${escapeHtml(plan.name)}</h2><div class="meta">${escapeHtml(plan.branchCode||'-')} · ${escapeHtml(plan.province||'-')} · ${fmtDateShort(plan.startDate)} – ${fmtDateShort(plan.endDate)}</div></div>
+      <div class="toolbar">
+        <button class="btn btn-claim" data-act="claim" ${!plan.team?'disabled':''}>เบิกคูปอง</button>
+        <button class="btn btn-transfer" data-act="transfer" ${!plan.team?'disabled':''}>โอน / สลับ</button>
+        <button class="btn btn-return" data-act="returnCoupons" ${!plan.team?'disabled':''}>คืนคูปอง</button>
+        <button class="btn btn-extend" data-act="extend">ขอคูปองเพิ่ม</button>
+        ${destroyBtn}
+      </div>
+    </div>
+
+    ${remaining<=0 && (assignedCount+destroyedCount)>0 ? `<div class="closed-banner">✓ ปิดงานสมบูรณ์ — ไม่มีคูปองเหลือค้างในระบบ</div>` : ''}
+
+    ${plan.team && !state.editingTeam ? `<div class="team-banner assigned">ทีมที่รับผิดชอบ: <strong>${escapeHtml(plan.team)}</strong> <button class="link-btn" data-act="editTeam">เปลี่ยนทีม</button></div>` : ''}
+    ${(!plan.team || state.editingTeam) ? `
+      ${!plan.team ? `<div class="team-banner unassigned">ยังไม่ได้กำหนดทีมที่รับผิดชอบแผนงานนี้ — เลือกทีมก่อนจึงจะเบิก/โอน/คืนคูปองได้</div>` : ''}
+      <div class="team-editor">
+        <select id="f-assign-team"><option value="">— เลือกทีม —</option>${teamsList().map(t=>`<option value="${escapeHtml(t)}" ${plan.team===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}</select>
+        <button class="btn btn-sm btn-claim" data-act="submitAssignTeam">ยืนยัน</button>
+        ${plan.team ? `<button class="btn btn-sm btn-ghost" data-act="cancelEditTeam">ยกเลิก</button>` : ''}
+      </div>` : ''}
+
+    <div class="plan-chips">
+      <span class="chip chip-type">${escapeHtml(plan.taskType)}</span>
+      <span class="chip chip-status-${status}">${STATUS_LABEL[status]}</span>
+      ${plan.needsBurmese ? '<span class="chip chip-burmese">ต้องการสื่อพม่า</span>' : ''}
+    </div>
+    <div class="meta" style="margin-bottom:14px;">เบิกแล้ว ${assignedCount} / ${plan.totalCoupons} ใบ${destroyedCount ? ` · ทำลายแล้ว ${destroyedCount} ใบ` : ''} · เหลือให้เบิก ${remaining} ใบ</div>
+
+    <div class="tabs">
+      <button class="tab ${state.planTab==='grid'?'active':''}" data-act="tab" data-tab="grid">สรุป &amp; กริดเบอร์</button>
+      <button class="tab ${state.planTab==='history'?'active':''}" data-act="tab" data-tab="history">ประวัติธุรกรรม</button>
+    </div>
+
+    ${state.planTab==='grid' ? `
+      <div class="panel">
+        <div class="panel-title">กริดคูปอง (สีตามเจ้าของ)</div>
+        <div class="coupon-grid">${gridCells}</div>
+        <div class="coupon-legend">${legend || '<span style="color:var(--ink-faint)">ยังไม่มีเจ้าของ</span>'}</div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">สรุปคงเหลือ <button class="btn btn-sm btn-ghost" data-act="exportSummary">ส่งออก Excel</button></div>
+        <div class="table-scroll"><table><thead><tr><th>เจ้าของ</th><th>จำนวน</th><th>ช่วงเบอร์</th></tr></thead><tbody>${summaryRows}</tbody></table></div>
+      </div>
+    ` : `
+      <div class="panel">
+        <div class="panel-title">ประวัติธุรกรรม <button class="btn btn-sm btn-ghost" data-act="exportHistory">ส่งออก Excel</button></div>
+        <div class="filters">
+          <input type="text" placeholder="ค้นหาชื่อ..." value="${escapeHtml(state.historyFilterName)}" data-act="filterName">
+          <input type="date" value="${state.historyFilterDate}" data-act="filterDate">
+        </div>
+        <div class="table-scroll"><table><thead><tr><th>เวลา</th><th>ประเภท</th><th>ช่วงเบอร์</th><th>เจ้าของเดิม</th><th>เจ้าของใหม่ / ผู้ดำเนินการ</th><th>หมายเหตุ</th></tr></thead><tbody>${historyRows}</tbody></table></div>
+      </div>
+    `}
+  `;
+}
+
+/* ============ Render: employee picker (team locked to plan) ============ */
+function renderEmployeePicker(prefix, manual, labelOverride){
+  const plan = currentPlan();
+  const emps = plan.team ? employeesByTeam(plan.team) : [];
+  const label = labelOverride || 'ชื่อพนักงาน';
+  return !manual ? `
+    <div class="field">
+      <label>${escapeHtml(label)} (ทีม ${escapeHtml(plan.team||'-')})</label>
+      <select id="${prefix}-employee-select">
+        <option value="">— เลือกพนักงาน —</option>
+        ${emps.map(e=>`<option value="${escapeHtml(e.nickname+' / '+e.name)}">${escapeHtml(e.nickname)} — ${escapeHtml(e.name)}</option>`).join('')}
+      </select>
+      <button type="button" class="link-btn" style="margin-top:6px;" data-act="${prefix}Manual">ไม่พบชื่อในรายชื่อ พิมพ์เอง</button>
+    </div>` : `
+    <div class="field">
+      <label>${escapeHtml(label)} (กรอกเอง)</label>
+      <input type="text" id="${prefix}-employee-manual" placeholder="พิมพ์ชื่อ">
+      <button type="button" class="link-btn" style="margin-top:6px;" data-act="${prefix}Manual">เลือกจากรายชื่อทีมแทน</button>
+    </div>`;
+}
+function getEmployeeValue(prefix, manual){
+  if(manual){ const el=document.getElementById(prefix+'-employee-manual'); return el?el.value:''; }
+  const el=document.getElementById(prefix+'-employee-select'); return el?el.value:'';
+}
+
+/* ============ Render: modals ============ */
+function renderModal(){
+  if(!state.modal) return '';
+  const plan = state.currentPlanId ? currentPlan() : null;
+
+  if(state.modal==='newPlan'){
+    const typeOpts = state.couponTypes.map(t=>`<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)} (${t.count} ใบ)</option>`).join('');
+    return `
+    <div class="overlay" data-act="overlay"><div class="modal wide" data-act="stop">
+      <h3>สร้างแผนงานใหม่</h3>
+      <div class="modal-tabs">
+        <button class="modal-tab ${state.modalTab==='single'?'active':''}" data-act="modalTab" data-tab="single">เพิ่มทีละรายการ</button>
+        <button class="modal-tab ${state.modalTab==='import'?'active':''}" data-act="modalTab" data-tab="import">นำเข้าจาก Excel</button>
+      </div>
+      ${state.modalTab==='single' ? `
+        <div class="field"><label>ชื่อสาขา / แผนงาน</label><input type="text" id="f-name" placeholder="เช่น หมู่บ้านสิรีนเฮ้าส์" autofocus></div>
+        <div class="field-row">
+          <div class="field"><label>รหัสสาขา (ถ้ามี)</label><input type="text" id="f-branchcode" placeholder="CJX00126"></div>
+          <div class="field"><label>จังหวัด (ถ้ามี)</label><input type="text" id="f-province" placeholder="นนทบุรี"></div>
+        </div>
+        <div class="field"><label>ทีมที่รับผิดชอบ (ถ้าทราบแล้ว)</label>
+          <select id="f-team"><option value="">— ยังไม่กำหนด —</option>${teamsList().map(t=>`<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>ประเภทงาน</label>
+          <select id="f-tasktype" data-act="typeSelectChange">${typeOpts}<option value="__custom__">อื่นๆ (กำหนดเอง)</option></select>
+        </div>
+        <div id="f-type-locked" class="field"><label>จำนวนคูปอง (ล็อคตามประเภทงาน)</label><div class="locked-total">${state.couponTypes[0] ? state.couponTypes[0].count+' ใบ' : '-'}</div></div>
+        <div id="f-type-custom" class="field-row" style="display:none;">
+          <div class="field"><label>ชื่อประเภทงานใหม่</label><input type="text" id="f-custom-name" placeholder="เช่น กิจกรรมพิเศษ"></div>
+          <div class="field"><label>จำนวนคูปอง</label><input type="number" id="f-custom-count" min="1" placeholder="เช่น 30"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>วันที่เริ่ม (ถ้ามี)</label><input type="date" id="f-startdate"></div>
+          <div class="field"><label>วันที่จบ (ถ้ามี)</label><input type="date" id="f-enddate"></div>
+        </div>
+        <div class="field-check"><input type="checkbox" id="f-burmese"><label for="f-burmese" style="margin:0; text-transform:none; font-size:13px;">ต้องการสื่อพม่า</label></div>
+        ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
+        <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ยกเลิก</button><button class="btn btn-claim" data-act="submitNewPlanSingle">สร้าง</button></div>
+      ` : `
+        <div class="file-drop">อัปโหลดไฟล์ Excel แผนงาน (ต้องมีชีท "แผนงาน" และ "จำนวนคูปอง" — ถ้ามีคอลัมน์ "ทีม" ระบบจะกำหนดทีมให้อัตโนมัติ)<br><input type="file" id="f-import-plans" accept=".xlsx,.xls"></div>
+        <div class="modal-note">ระบบจะข้ามแผนงานที่มีรหัสสาขา + วันที่เริ่ม + ประเภทงานตรงกับที่มีอยู่แล้วอัตโนมัติ</div>
+        ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
+        <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ปิด</button></div>
+      `}
+    </div></div>`;
+  }
+
+  if(state.modal==='claim'){
+    return `
+    <div class="overlay" data-act="overlay"><div class="modal" data-act="stop">
+      <h3>เบิกคูปอง</h3>
+      ${renderEmployeePicker('claim', state.claimManual)}
+      <div class="field"><label>จำนวนที่จะเบิก (ใบ)</label><input type="number" id="f-count" min="1" placeholder="เช่น 20"></div>
+      <div class="modal-note">ระบบจะมอบเบอร์ถัดจากคนล่าสุดให้อัตโนมัติ</div>
+      ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
+      <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ยกเลิก</button><button class="btn btn-claim" data-act="submitClaim">เบิก</button></div>
+    </div></div>`;
+  }
+
+  if(state.modal==='transfer'){
+    const blocks = ownerBlocks();
+    return `
+    <div class="overlay" data-act="overlay"><div class="modal" data-act="stop">
+      <h3>โอน / สลับคูปอง</h3>
+      <div class="field"><label>เลือกจากรายการที่เบิกแล้ว</label>
+        <select id="f-block-select" data-act="transferBlockChange">
+          <option value="">— เลือกช่วงที่จะโอน —</option>
+          ${blocks.map(b=>`<option value="${b.from}|${b.to}">${escapeHtml(b.owner)}: #${b.from}–${b.to} (${b.to-b.from+1} ใบ)</option>`).join('')}
+        </select>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>จากเบอร์</label><input type="number" id="f-from" min="1"></div>
+        <div class="field"><label>ถึงเบอร์</label><input type="number" id="f-to" min="1"></div>
+      </div>
+      ${renderEmployeePicker('transfer', state.transferManual)}
+      <div class="modal-note">เลือกช่วงจากรายการเบิกแล้วเท่านั้น (ปรับช่วงย่อยได้)</div>
+      ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
+      <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ยกเลิก</button><button class="btn btn-transfer" data-act="submitTransfer">โอน</button></div>
+    </div></div>`;
+  }
+
+  if(state.modal==='returnCoupons'){
+    const blocks = ownerBlocks();
+    return `
+    <div class="overlay" data-act="overlay"><div class="modal" data-act="stop">
+      <h3>คืนคูปอง</h3>
+      <div class="field"><label>เลือกจากรายการที่เบิกแล้ว</label>
+        <select id="f-return-block-select" data-act="returnBlockChange">
+          <option value="">— เลือกช่วงที่จะคืน —</option>
+          ${blocks.map(b=>`<option value="${b.from}|${b.to}">${escapeHtml(b.owner)}: #${b.from}–${b.to} (${b.to-b.from+1} ใบ)</option>`).join('')}
+        </select>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>จากเบอร์</label><input type="number" id="f-return-from" min="1"></div>
+        <div class="field"><label>ถึงเบอร์</label><input type="number" id="f-return-to" min="1"></div>
+      </div>
+      <div class="modal-note">คืนได้เฉพาะช่วงของเจ้าของคนเดียวกันเท่านั้น เบอร์ที่คืนจะกลับเป็น "ยังไม่มีเจ้าของ"</div>
+      ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
+      <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ยกเลิก</button><button class="btn btn-return" data-act="submitReturn">คืนคูปอง</button></div>
+    </div></div>`;
+  }
+
+  if(state.modal==='extend'){
+    return `
+    <div class="overlay" data-act="overlay"><div class="modal" data-act="stop">
+      <h3>ขอคูปองเพิ่ม</h3>
+      <div class="modal-note">แผนงาน "${escapeHtml(plan.name)}" มีทั้งหมด ${plan.totalCoupons} ใบ (เหลือให้เบิก ${plan.totalCoupons - state.planData.coupons.filter(c=>c.owner||c.destroyed).length} ใบ)</div>
+      <div class="field" style="margin-top:12px;"><label>จำนวนที่ขอเพิ่ม (ใบ)</label><input type="number" id="f-extend-amount" min="1" placeholder="เช่น 50" autofocus></div>
+      <div class="field"><label>หมายเหตุ (ถ้ามี)</label><input type="text" id="f-extend-note" placeholder="เช่น อนุมัติเพิ่มจากหัวหน้างาน"></div>
+      ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
+      <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ยกเลิก</button><button class="btn btn-extend" data-act="submitExtend">ขอเพิ่ม</button></div>
+    </div></div>`;
+  }
+
+  if(state.modal==='destroyCoupons'){
+    const blocks = unclaimedBlocks();
+    const total = blocks.reduce((s,b)=>s+(b.to-b.from+1),0);
+    return `
+    <div class="overlay" data-act="overlay"><div class="modal" data-act="stop">
+      <h3>ทำลายคูปองที่เหลือทั้งหมด</h3>
+      <div class="modal-warning">การทำลายจะรวมคูปองที่เหลือ "ทุกช่วง" มาทำลายในครั้งเดียว รวม ${total} ใบ — ทำแล้วแก้ไขไม่ได้</div>
+      <div class="destroy-block-list">${blocks.map(b=>`<div>${rangeLabel([b.from,b.to])} (${b.to-b.from+1} ใบ)</div>`).join('')}</div>
+      ${renderEmployeePicker('destroy', state.destroyManual, 'ผู้ทำลาย')}
+      <div class="field"><label>แนบรูปตอนทำลาย (จำเป็น)</label>
+        <input type="file" id="f-destroy-photo" accept="image/*" capture="environment">
+        ${state.destroyPhoto ? `<img class="photo-preview" src="${state.destroyPhoto}">` : ''}
+      </div>
+      <div class="field"><label>หมายเหตุ (ถ้ามี)</label><input type="text" id="f-destroy-note" placeholder="เช่น เหลือจากงานแฟร์ ทำลายต่อหน้าหัวหน้างาน"></div>
+      ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
+      <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ยกเลิก</button><button class="btn btn-destroy" data-act="submitDestroy">ยืนยันทำลายทั้งหมด</button></div>
+    </div></div>`;
+  }
+
+  if(state.modal==='settingsTypes'){
+    return `
+    <div class="overlay" data-act="overlay"><div class="modal" data-act="stop">
+      <h3>ตั้งค่าประเภทงาน &amp; จำนวนคูปอง</h3>
+      <div id="type-rows">
+        ${state.typeEditRows.map((t,i)=>`
+          <div class="type-row">
+            <input type="text" value="${escapeHtml(t.name)}" data-typeidx="${i}" data-field="name" placeholder="ชื่อประเภทงาน">
+            <input type="number" value="${t.count}" min="0" data-typeidx="${i}" data-field="count">
+            <button type="button" class="btn btn-sm btn-ghost" data-act="removeTypeRow" data-idx="${i}">ลบ</button>
+          </div>`).join('')}
+      </div>
+      <button type="button" class="link-btn" data-act="addTypeRow">+ เพิ่มประเภทงานใหม่</button>
+      <div class="modal-note">การเปลี่ยนจำนวนที่นี่มีผลกับแผนงาน "ใหม่" เท่านั้น แผนงานเดิมใช้ปุ่ม "ขอคูปองเพิ่ม" แทน</div>
+      ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
+      <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ยกเลิก</button><button class="btn btn-claim" data-act="submitTypeSettings">บันทึก</button></div>
+    </div></div>`;
+  }
+
+  if(state.modal==='importEmployees'){
+    return `
+    <div class="overlay" data-act="overlay"><div class="modal" data-act="stop">
+      <h3>นำเข้ารายชื่อพนักงาน</h3>
+      <div class="file-drop">อัปโหลดไฟล์ Excel รายชื่อพนักงาน (คอลัมน์: ทีม, Area, รหัสพนักงาน, ชื่อพนักงาน, ชื่อเล่น, เพศ)<br><input type="file" id="f-import-employees" accept=".xlsx,.xls"></div>
+      <div class="modal-note">การนำเข้าจะ "แทนที่" รายชื่อพนักงานทั้งหมดที่มีอยู่ในระบบ</div>
+      ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
+      <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ปิด</button></div>
+    </div></div>`;
+  }
+  return '';
+}
+
+/* ============ Event wiring ============ */
+function attachHandlers(){
+  const app = document.getElementById('app');
+  app.onclick = (e) => {
+    const el = e.target.closest('[data-act]'); if(!el) return;
+    const act = el.dataset.act;
+    if(act==='overlay'){ closeModal(); return; }
+    if(act==='closePhoto'){ state.viewPhotoUrl=null; render(); return; }
+    if(act==='stop'){ e.stopPropagation(); return; }
+    if(act==='home'){ goHome(); return; }
+    if(act==='goHelp'){ goHelp(); return; }
+    if(act==='reopenPlan'){ if(state.currentPlanId) openPlan(state.currentPlanId); return; }
+    if(act==='open'){ openPlan(el.dataset.id); return; }
+    if(act==='archive'){ e.stopPropagation(); toggleArchive(el.dataset.id); return; }
+    if(act==='newPlan'){ openModal('newPlan'); return; }
+    if(act==='closeModal'){ closeModal(); return; }
+    if(act==='claim'){ if(el.disabled) return; state.claimManual=false; openModal('claim'); return; }
+    if(act==='transfer'){ if(el.disabled) return; state.transferManual=false; openModal('transfer'); return; }
+    if(act==='returnCoupons'){ if(el.disabled) return; openModal('returnCoupons'); return; }
+    if(act==='destroyCoupons'){ if(el.disabled) return; state.destroyManual=false; openModal('destroyCoupons'); return; }
+    if(act==='extend'){ openModal('extend'); return; }
+    if(act==='settingsTypes'){ openModal('settingsTypes'); return; }
+    if(act==='importEmployees'){ openModal('importEmployees'); return; }
+    if(act==='resetPlans'){ resetAllPlans(); return; }
+    if(act==='editTeam'){ state.editingTeam=true; render(); return; }
+    if(act==='cancelEditTeam'){ state.editingTeam=false; render(); return; }
+    if(act==='submitAssignTeam'){ assignTeam(document.getElementById('f-assign-team').value); return; }
+    if(act==='tab'){ state.planTab = el.dataset.tab; render(); return; }
+    if(act==='modalTab'){ state.modalTab = el.dataset.tab; state.modalError=''; render(); return; }
+    if(act==='exportHistory'){ exportHistoryXlsx(); return; }
+    if(act==='exportSummary'){ exportSummaryXlsx(); return; }
+    if(act==='exportAllPlans'){ exportAllPlansXlsx(); return; }
+    if(act==='viewPhoto'){ const t = state.planData.transactions[parseInt(el.dataset.photoIdx,10)]; if(t && t.photo){ state.viewPhotoUrl = t.photo; render(); } return; }
+    if(act==='claimManual'){ state.claimManual = !state.claimManual; render(); return; }
+    if(act==='transferManual'){ state.transferManual = !state.transferManual; render(); return; }
+    if(act==='destroyManual'){ state.destroyManual = !state.destroyManual; render(); return; }
+    if(act==='addTypeRow'){ state.typeEditRows.push({name:'', count:0}); render(); return; }
+    if(act==='removeTypeRow'){ state.typeEditRows.splice(parseInt(el.dataset.idx,10),1); render(); return; }
+    if(act==='submitTypeSettings'){ saveTypeSettings(); return; }
+    if(act==='submitNewPlanSingle'){
+      const typeSel = document.getElementById('f-tasktype').value;
+      createPlanSingle({
+        name: document.getElementById('f-name').value, branchCode: document.getElementById('f-branchcode').value,
+        province: document.getElementById('f-province').value, team: document.getElementById('f-team').value,
+        typeMode: typeSel==='__custom__' ? 'custom' : 'preset', typeName: typeSel,
+        customName: document.getElementById('f-custom-name') ? document.getElementById('f-custom-name').value : '',
+        customCount: document.getElementById('f-custom-count') ? document.getElementById('f-custom-count').value : '',
+        startDate: document.getElementById('f-startdate').value, endDate: document.getElementById('f-enddate').value,
+        needsBurmese: document.getElementById('f-burmese').checked,
+      });
+      return;
+    }
+    if(act==='submitClaim'){ claimCoupons(getEmployeeValue('claim', state.claimManual), document.getElementById('f-count').value); return; }
+    if(act==='submitTransfer'){ transferCoupons(document.getElementById('f-from').value, document.getElementById('f-to').value, getEmployeeValue('transfer', state.transferManual)); return; }
+    if(act==='submitReturn'){ returnCoupons(document.getElementById('f-return-from').value, document.getElementById('f-return-to').value); return; }
+    if(act==='submitExtend'){ extendCoupons(document.getElementById('f-extend-amount').value, document.getElementById('f-extend-note').value); return; }
+    if(act==='submitDestroy'){ destroyAllRemaining(getEmployeeValue('destroy', state.destroyManual), document.getElementById('f-destroy-note').value, state.destroyPhoto); return; }
+  };
+  app.onchange = (e) => {
+    const el = e.target;
+    if(el.id==='f-tasktype'){
+      const isCustom = el.value==='__custom__';
+      document.getElementById('f-type-locked').style.display = isCustom ? 'none' : '';
+      document.getElementById('f-type-custom').style.display = isCustom ? 'flex' : 'none';
+      if(!isCustom){ const t = state.couponTypes.find(t=>t.name===el.value); document.getElementById('f-type-locked').querySelector('.locked-total').textContent = t ? t.count+' ใบ' : '-'; }
+      return;
+    }
+    if(el.id==='f-block-select' && el.value){ const [f,t]=el.value.split('|'); document.getElementById('f-from').value=f; document.getElementById('f-to').value=t; return; }
+    if(el.id==='f-return-block-select' && el.value){ const [f,t]=el.value.split('|'); document.getElementById('f-return-from').value=f; document.getElementById('f-return-to').value=t; return; }
+    if(el.dataset.typeidx !== undefined){ state.typeEditRows[parseInt(el.dataset.typeidx,10)][el.dataset.field] = el.value; return; }
+    if(el.id==='f-import-plans' && el.files[0]){ handleImportPlansFile(el.files[0]); return; }
+    if(el.id==='f-import-employees' && el.files[0]){ handleImportEmployeesFile(el.files[0]); return; }
+    if(el.id==='f-destroy-photo' && el.files[0]){ handleDestroyPhoto(el.files[0]); return; }
+  };
+  app.oninput = (e) => {
+    const el = e.target.closest('[data-act]'); if(!el) return;
+    if(el.dataset.act==='filterName'){ state.historyFilterName = el.value; render(); refocus('input[data-act="filterName"]'); }
+    if(el.dataset.act==='filterDate'){ state.historyFilterDate = el.value; render(); }
+    if(el.dataset.act==='homeSearch'){ state.homeFilter.search = el.value; render(); refocus('input[data-act="homeSearch"]'); }
+  };
+  app.onkeydown = (e) => { if(e.key==='Escape'){ if(state.viewPhotoUrl){ state.viewPhotoUrl=null; render(); } else if(state.modal){ closeModal(); } } };
+  const typeSel = app.querySelector('select[data-act="homeType"]'); if(typeSel) typeSel.onchange = (e)=>{ state.homeFilter.type = e.target.value; render(); };
+  const teamSel = app.querySelector('select[data-act="homeTeam"]'); if(teamSel) teamSel.onchange = (e)=>{ state.homeFilter.team = e.target.value; render(); };
+  const statusSel = app.querySelector('select[data-act="homeStatus"]'); if(statusSel) statusSel.onchange = (e)=>{ state.homeFilter.status = e.target.value; render(); };
+}
+function refocus(sel){ const el=document.querySelector(sel); if(el){ const v=el.value; el.focus(); el.value=''; el.value=v; el.setSelectionRange(v.length,v.length); } }
+
+init();
+</script>
+</body>
+</html>
