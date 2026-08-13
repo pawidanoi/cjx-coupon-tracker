@@ -302,7 +302,7 @@ async function loadAllData(){
       if(c.destroyed) counts[c.plan_id].destroyed++; else if(c.owner) counts[c.plan_id].assigned++;
     });
     state.plans = (plans||[]).map(p=>mapPlanRow(p, counts));
-    state.employees = (employees||[]).map(e=>({team:e.team, area:e.area, code:e.code, name:e.name, nickname:e.nickname, gender:e.gender}));
+    state.employees = (employees||[]).map(e=>({team:e.team, area:e.area, code:e.code, name:e.name, nickname:e.nickname, gender:e.gender, address:e.address, coordinates:e.coordinates, phone:e.phone}));
     state.couponTypes = (types||[]).map(t=>({name:t.name, count:t.count}));
   } catch(err){
     console.error(err); showToast('เชื่อมต่อฐานข้อมูลไม่สำเร็จ ลองรีเฟรชหน้าใหม่');
@@ -543,6 +543,25 @@ async function saveTypeSettings(){
 }
 
 /* ============ Reset all plans ============ */
+async function cleanupOldPlans(){
+  const done = state.plans.filter(p=>!p.archived && planStatus(p)==='done');
+  const upcoming = state.plans.filter(p=>!p.archived && planStatus(p)==='upcoming');
+  if(done.length===0 && upcoming.length===0){ showToast('ไม่มีแผนงานที่ต้องจัดการ (ไม่มีงานที่จบแล้วหรือยังไม่เริ่ม)'); return; }
+  const msg = `จะดำเนินการดังนี้:\n- จัดเก็บ (archive) แผนงานที่จบแล้ว ${done.length} รายการ\n- ลบแผนงานที่ยังไม่เริ่ม ${upcoming.length} รายการ (ลบไม่สามารถกู้คืนได้)\n- แผนงานที่กำลังดำเนินการจะไม่ถูกแตะต้อง\n\nยืนยันหรือไม่?`;
+  if(!window.confirm(msg)) return;
+  for(const p of done){
+    const { error } = await sb.from('plans').update({archived:true}).eq('id', p.id);
+    if(!error) p.archived = true; else console.error(error);
+  }
+  if(upcoming.length){
+    const ids = upcoming.map(p=>p.id);
+    const { error } = await sb.from('plans').delete().in('id', ids);
+    if(!error) state.plans = state.plans.filter(p=>!ids.includes(p.id)); else console.error(error);
+  }
+  showToast(`จัดเก็บแผนงานที่จบแล้ว ${done.length} รายการ และลบแผนงานที่ยังไม่เริ่ม ${upcoming.length} รายการเรียบร้อย`);
+  render();
+}
+
 async function resetAllPlans(){
   if(state.plans.length===0){ showToast('ไม่มีแผนงานอยู่แล้ว'); return; }
   if(!window.confirm(`ลบแผนงานทั้งหมด ${state.plans.length} รายการออกจากระบบ? ข้อมูลเบิก/โอน/ประวัติทั้งหมดจะหายไปและกู้คืนไม่ได้`)) return;
@@ -578,8 +597,24 @@ function toIsoDate(v){
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
 }
 function pickTeamColumn(row){
-  const candidates = ['ทีม','ทีมที่ไปจัด','ทีมที่รับผิดชอบ','ทีมงาน','Team'];
+  const candidates = ['ทีม','ทีมที่ไปจัด','ทีมที่รับผิดชอบ','ทีมงาน','Team','ตำแหน่ง'];
   for(const key of candidates){ if(row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== ''){ return String(row[key]).trim(); } }
+  return null;
+}
+function pickColumn(row, candidates){
+  for(const key of candidates){ if(row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== ''){ return String(row[key]).trim(); } }
+  return '';
+}
+function findCouponTypeSheet(wb, excludeName){
+  // Match by column headers (ประเภทงาน + จำนวนคูปอง) instead of a fixed sheet name,
+  // since the sheet has been named differently across files ("จำนวนคูปอง", "แบ่งตามประเภทงาน", ...)
+  for(const name of wb.SheetNames){
+    if(name === excludeName) continue;
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], {defval:null, raw:true, header:1});
+    if(!rows.length) continue;
+    const header = (rows[0]||[]).map(h=>String(h||'').trim());
+    if(header.includes('ประเภทงาน') && header.includes('จำนวนคูปอง')) return name;
+  }
   return null;
 }
 
@@ -587,7 +622,7 @@ async function handleImportPlansFile(file){
   try{
     const wb = await readWorkbook(file);
     const planSheetName = wb.SheetNames.find(n=>n.trim()==='แผนงาน') || wb.SheetNames[0];
-    const typeSheetName = wb.SheetNames.find(n=>n.trim()==='จำนวนคูปอง');
+    const typeSheetName = findCouponTypeSheet(wb, planSheetName);
     const planRows = XLSX.utils.sheet_to_json(wb.Sheets[planSheetName], {defval:null, raw:true});
 
     if(typeSheetName){
@@ -647,15 +682,21 @@ async function handleImportEmployeesFile(file){
     const sheet = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, {defval:null, raw:true});
     const emps = rows.map(r=>({
-      team:(r['ทีม']||'').toString().trim(), area:(r['Area']||'').toString().trim(),
-      code:(r['รหัสพนักงาน']||'').toString().trim(), name:(r['ชื่อพนักงาน']||'').toString().trim(),
-      nickname:(r['ชื่อเล่น']||'').toString().trim(), gender:(r['เพศ']||'').toString().trim(),
+      team: pickColumn(r, ['ทีม','ตำแหน่ง','Team']),
+      area: pickColumn(r, ['Area','Areaดูแล','area']),
+      code: pickColumn(r, ['รหัสพนักงาน']),
+      name: pickColumn(r, ['ชื่อพนักงาน']),
+      nickname: pickColumn(r, ['ชื่อเล่น']),
+      gender: pickColumn(r, ['เพศ']),
+      address: pickColumn(r, ['ที่อยู่']),
+      coordinates: pickColumn(r, ['พิกัด']),
+      phone: pickColumn(r, ['เบอร์โทร','เบอร์โทรศัพท์']),
     })).filter(e=>e.name);
     if(emps.length===0){ state.modalError='ไม่พบข้อมูลพนักงานในไฟล์นี้'; render(); return; }
     const { error: delErr } = await sb.from('employees').delete().not('id','is',null);
     if(delErr) console.error(delErr);
     const { error: insErr } = await sb.from('employees').insert(emps);
-    if(insErr){ state.modalError = 'บันทึกไม่สำเร็จ: '+insErr.message; render(); return; }
+    if(insErr){ state.modalError = 'บันทึกไม่สำเร็จ: '+insErr.message+' — ถ้าฟิลด์ใหม่ (ที่อยู่/พิกัด/เบอร์โทร) ยังไม่มีในตาราง ให้รัน SQL เพิ่มคอลัมน์ก่อน'; render(); return; }
     state.employees = emps;
     closeModal(); showToast(`นำเข้ารายชื่อพนักงาน ${emps.length} คนเรียบร้อย (แทนที่รายชื่อเดิมทั้งหมด)`); render();
   }catch(err){ state.modalError = 'อ่านไฟล์ไม่สำเร็จ: '+err.message; render(); }
@@ -734,6 +775,7 @@ function render(){
         ${state.view==='home' ? `
           <button class="btn btn-sm btn-ghost" data-act="importEmployees">นำเข้ารายชื่อพนักงาน</button>
           <button class="btn btn-sm btn-ghost" data-act="settingsTypes">ตั้งค่าประเภทงาน</button>
+          ${state.plans.length>0 ? `<button class="btn btn-sm btn-ghost" data-act="cleanupOldPlans">จัดเก็บงานที่จบ + ลบงานที่ยังไม่เริ่ม</button>` : ''}
           ${state.plans.length>0 ? `<button class="btn btn-sm btn-ghost" data-act="resetPlans" style="color:var(--brand-red);">ล้างแผนงานทั้งหมด</button>` : ''}
         ` : ''}
       </div>
@@ -1146,6 +1188,7 @@ function attachHandlers(){
     if(act==='extend'){ openModal('extend'); return; }
     if(act==='settingsTypes'){ openModal('settingsTypes'); return; }
     if(act==='importEmployees'){ openModal('importEmployees'); return; }
+    if(act==='cleanupOldPlans'){ cleanupOldPlans(); return; }
     if(act==='resetPlans'){ resetAllPlans(); return; }
     if(act==='editTeam'){ state.editingTeam=true; render(); return; }
     if(act==='cancelEditTeam'){ state.editingTeam=false; render(); return; }
