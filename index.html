@@ -210,7 +210,7 @@ let state = {
   plans:[], planData:null, employees:[], couponTypes:[],
   modal:null, modalTab:'single', modalError:'',
   claimManual:false, transferManual:false, destroyManual:false,
-  editingTeam:false, destroyPhoto:null,
+  editingTeam:false, teamManual:false, destroyPhoto:null,
   homeFilter:{search:'', type:'', status:'all', team:''},
   historyFilterName:'', historyFilterDate:'',
   typeEditRows:[], viewPhotoUrl:null,
@@ -240,7 +240,16 @@ const STATUS_LABEL = {upcoming:'ยังไม่เริ่ม', active:'ก�
 function canDestroyToday(plan){ if(!plan.endDate) return true; const today=new Date(); today.setHours(0,0,0,0); const end=new Date(plan.endDate); return today >= end; }
 
 /* ============ Employee helpers ============ */
-function teamsList(){ return [...new Set(state.employees.map(e=>e.team))].sort(); }
+// Team names can come from two places that don't always agree: the employee roster's
+// "team" column (may be blank if that file's header didn't match on import) and the
+// team already saved on existing plans (set directly during plan import/assignment).
+// Union both so a team already in use is always selectable, even if the roster import
+// missed it.
+function teamsList(){
+  const fromEmployees = state.employees.map(e=>e.team);
+  const fromPlans = state.plans.map(p=>p.team);
+  return [...new Set([...fromEmployees, ...fromPlans].filter(t=>t && String(t).trim()!==''))].sort();
+}
 function employeesByTeam(team){ return state.employees.filter(e=>e.team===team).sort((a,b)=>a.nickname.localeCompare(b.nickname)); }
 
 /* ============ Block helpers ============ */
@@ -311,7 +320,7 @@ async function loadAllData(){
 
 /* ============ Navigation ============ */
 async function openPlan(id){
-  state.currentPlanId = id; state.view='plan'; state.planTab='grid'; state.editingTeam=false;
+  state.currentPlanId = id; state.view='plan'; state.planTab='grid'; state.editingTeam=false; state.teamManual=false;
   state.planData = {coupons:[], transactions:[]};
   render();
   await refreshCurrentPlan();
@@ -383,6 +392,7 @@ async function toggleArchive(id){
 }
 
 async function assignTeam(team){
+  team = (team||'').trim();
   if(!team){ state.modalError='กรุณาเลือกทีม'; render(); return; }
   const plan = currentPlan();
   const { error } = await sb.from('plans').update({team}).eq('id', plan.id);
@@ -596,14 +606,26 @@ function toIsoDate(v){
   if(isNaN(d)) return null;
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
 }
-function pickTeamColumn(row){
-  const candidates = ['ทีม','ทีมที่ไปจัด','ทีมที่รับผิดชอบ','ทีมงาน','Team','ตำแหน่ง'];
-  for(const key of candidates){ if(row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== ''){ return String(row[key]).trim(); } }
-  return null;
-}
+function normalizeHeader(h){ return String(h).trim().toLowerCase().replace(/\s+/g,''); }
 function pickColumn(row, candidates){
+  // Exact header match first (fast path).
   for(const key of candidates){ if(row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== ''){ return String(row[key]).trim(); } }
+  // Fallback: match ignoring case/extra whitespace in the source file's header row —
+  // client files have used slightly different spellings/spacing for the same column
+  // across imports, and a silent miss here leaves the field blank with no error shown,
+  // which is hard for a non-technical user to notice or debug.
+  const normCandidates = candidates.map(normalizeHeader);
+  for(const rawKey of Object.keys(row)){
+    if(normCandidates.includes(normalizeHeader(rawKey))){
+      const v = row[rawKey];
+      if(v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
+    }
+  }
   return '';
+}
+function pickTeamColumn(row){
+  const v = pickColumn(row, ['ทีม','ทีมที่ไปจัด','ทีมที่รับผิดชอบ','ทีมงาน','Team','ตำแหน่ง']);
+  return v || null;
 }
 function findCouponTypeSheet(wb, excludeName){
   // Match by column headers (ประเภทงาน + จำนวนคูปอง) instead of a fixed sheet name,
@@ -682,8 +704,8 @@ async function handleImportEmployeesFile(file){
     const sheet = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, {defval:null, raw:true});
     const emps = rows.map(r=>({
-      team: pickColumn(r, ['ทีม','ตำแหน่ง','Team']),
-      area: pickColumn(r, ['Area','Areaดูแล','area']),
+      team: pickColumn(r, ['ทีม','ทีมที่ไปจัด','ทีมที่รับผิดชอบ','ทีมงาน','Team','ตำแหน่ง']),
+      area: pickColumn(r, ['Area','Areaดูแล','area','พื้นที่']),
       code: pickColumn(r, ['รหัสพนักงาน']),
       name: pickColumn(r, ['ชื่อพนักงาน']),
       nickname: pickColumn(r, ['ชื่อเล่น']),
@@ -935,9 +957,14 @@ function renderPlan(){
     ${(!plan.team || state.editingTeam) ? `
       ${!plan.team ? `<div class="team-banner unassigned">ยังไม่ได้กำหนดทีมที่รับผิดชอบแผนงานนี้ — เลือกทีมก่อนจึงจะเบิก/โอน/คืนคูปองได้</div>` : ''}
       <div class="team-editor">
-        <select id="f-assign-team"><option value="">— เลือกทีม —</option>${teamsList().map(t=>`<option value="${escapeHtml(t)}" ${plan.team===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}</select>
+        ${!state.teamManual ? `
+          <select id="f-assign-team"><option value="">— เลือกทีม —</option>${teamsList().map(t=>`<option value="${escapeHtml(t)}" ${plan.team===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}</select>
+        ` : `
+          <input type="text" id="f-assign-team-manual" placeholder="พิมพ์ชื่อทีม เช่น SMA14" value="${escapeHtml(plan.team||'')}">
+        `}
         <button class="btn btn-sm btn-claim" data-act="submitAssignTeam">ยืนยัน</button>
         ${plan.team ? `<button class="btn btn-sm btn-ghost" data-act="cancelEditTeam">ยกเลิก</button>` : ''}
+        <button type="button" class="link-btn" data-act="teamManual">${!state.teamManual ? 'ไม่พบทีมในรายชื่อ พิมพ์เอง' : 'เลือกจากรายชื่อทีมแทน'}</button>
       </div>` : ''}
 
     <div class="plan-chips">
@@ -1190,9 +1217,14 @@ function attachHandlers(){
     if(act==='importEmployees'){ openModal('importEmployees'); return; }
     if(act==='cleanupOldPlans'){ cleanupOldPlans(); return; }
     if(act==='resetPlans'){ resetAllPlans(); return; }
-    if(act==='editTeam'){ state.editingTeam=true; render(); return; }
-    if(act==='cancelEditTeam'){ state.editingTeam=false; render(); return; }
-    if(act==='submitAssignTeam'){ assignTeam(document.getElementById('f-assign-team').value); return; }
+    if(act==='editTeam'){ state.editingTeam=true; state.teamManual=false; render(); return; }
+    if(act==='cancelEditTeam'){ state.editingTeam=false; state.teamManual=false; render(); return; }
+    if(act==='teamManual'){ state.teamManual = !state.teamManual; render(); return; }
+    if(act==='submitAssignTeam'){
+      const el = state.teamManual ? document.getElementById('f-assign-team-manual') : document.getElementById('f-assign-team');
+      assignTeam(el ? el.value : '');
+      return;
+    }
     if(act==='tab'){ state.planTab = el.dataset.tab; render(); return; }
     if(act==='modalTab'){ state.modalTab = el.dataset.tab; state.modalError=''; render(); return; }
     if(act==='exportHistory'){ exportHistoryXlsx(); return; }
