@@ -407,20 +407,27 @@ async function claimCoupons(employee, count){
   if(!plan.team){ state.modalError='กรุณากำหนดทีมที่รับผิดชอบแผนงานนี้ก่อน'; render(); return; }
   if(!employee){ state.modalError='กรุณาเลือกหรือกรอกชื่อพนักงาน'; render(); return; }
   if(!count || count<1){ state.modalError='จำนวนที่เบิกต้องมากกว่า 0'; render(); return; }
-  const maxAssigned = data.coupons.reduce((m,c)=> c.owner ? Math.max(m,c.no) : m, 0);
-  const start = maxAssigned+1;
-  const remaining = plan.totalCoupons - maxAssigned;
-  if(remaining <= 0){ state.modalError='คูปองในแผนงานนี้ถูกเบิกหมดแล้ว กด "ขอคูปองเพิ่ม" ก่อน'; render(); return; }
-  const actualCount = Math.min(count, remaining);
-  const end = start + actualCount - 1;
-  const { error: e1 } = await sb.from('coupons').update({owner:employee}).eq('plan_id', plan.id).gte('no', start).lte('no', end);
-  if(e1){ console.error(e1); state.modalError='บันทึกไม่สำเร็จ: '+e1.message; render(); return; }
-  const { error: e2 } = await sb.from('transactions').insert({
-    plan_id: plan.id, action_type:'เบิก', range_from:start, range_to:end, previous_owner:null, new_owner:employee, note:'' });
-  if(e2) console.error(e2);
+  // Claim the LOWEST unclaimed numbers first (via unclaimedBlocks, which already excludes
+  // owned + destroyed coupons) instead of always continuing after the historical max-ever-
+  // assigned number. That old approach permanently skipped any numbers freed by a "คืนคูปอง"
+  // (return) — e.g. #1–5 claimed then returned would never be reissued, since the next claim
+  // started right after whatever higher number was already assigned to someone else. Numbers
+  // freed by a return are now first in line to be handed out again.
+  const freeNums = []; unclaimedBlocks().forEach(b=>{ for(let n=b.from;n<=b.to;n++) freeNums.push(n); });
+  if(freeNums.length===0){ state.modalError='คูปองในแผนงานนี้ถูกเบิกหมดแล้ว กด "ขอคูปองเพิ่ม" ก่อน'; render(); return; }
+  const actualCount = Math.min(count, freeNums.length);
+  const claimBlocks = compressRanges(freeNums.slice(0, actualCount));
+  for(const r of claimBlocks){
+    const { error: e1 } = await sb.from('coupons').update({owner:employee}).eq('plan_id', plan.id).gte('no', r[0]).lte('no', r[1]);
+    if(e1){ console.error(e1); state.modalError='บันทึกไม่สำเร็จ: '+e1.message; render(); return; }
+    const { error: e2 } = await sb.from('transactions').insert({
+      plan_id: plan.id, action_type:'เบิก', range_from:r[0], range_to:r[1], previous_owner:null, new_owner:employee, note:'' });
+    if(e2) console.error(e2);
+  }
   await refreshCurrentPlan();
   closeModal();
-  showToast(actualCount<count ? `เบิกให้ ${employee} ได้เพียง #${start}–${end} (${actualCount} ใบ) เพราะคูปองไม่พอ` : `${employee} เบิกคูปอง #${start}–${end} เรียบร้อย`);
+  const label = claimBlocks.map(rangeLabel).join(', ');
+  showToast(actualCount<count ? `เบิกให้ ${employee} ได้เพียง ${label} (${actualCount} ใบ) เพราะคูปองไม่พอ` : `${employee} เบิกคูปอง ${label} เรียบร้อย`);
   render();
 }
 
