@@ -214,6 +214,7 @@ let state = {
   homeFilter:{search:'', type:'', status:'all', team:''},
   historyFilterName:'', historyFilterDate:'',
   typeEditRows:[], viewPhotoUrl:null,
+  employeeSync:{status:'idle', lastSyncedAt:null, error:null, count:0},
 };
 
 const PALETTE = ['#F4D35E','#F2A6B0','#A7C7E7','#B7E4C7','#F6B26B','#C9B6E4','#E8C1A0','#9FD8D8','#D8B4E2','#C8D96F'];
@@ -272,6 +273,16 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const PHOTO_BUCKET = 'destroy-photos';
 
+/* ============ Employee roster: live Google Sheet source ============ */
+// "รายชื่อพนักงานทีมกิจ" — shared as "Anyone with the link: Viewer", read via the public
+// gviz CSV export endpoint so the app (no login, by design) can fetch it straight from any
+// field staff's browser with no API key. Sheet tab is selected by gid (0 = first tab).
+const EMPLOYEE_SHEET_ID = '1ME9-ibHGGdo94RjbXA2v69NKbF_27x87TCu2vGGlLzo';
+const EMPLOYEE_SHEET_GID = '0';
+function employeeSheetCsvUrl(){
+  return `https://docs.google.com/spreadsheets/d/${EMPLOYEE_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${EMPLOYEE_SHEET_GID}&_=${Date.now()}`;
+}
+
 /* ============ Row <-> app-state mapping ============ */
 function mapPlanRow(p, counts){
   const c = counts[p.id] || {assigned:0, destroyed:0};
@@ -294,6 +305,11 @@ function mapTxRow(t){
 async function init(){
   await loadAllData();
   render();
+  // Refresh the employee roster from the live Google Sheet in the background — runs after
+  // the first paint (not awaited here) so a slow/unreachable network never blocks app
+  // startup; whatever employees were last synced into Supabase are shown immediately, and
+  // this quietly brings them up to date and re-renders when it finishes.
+  syncEmployeesFromSheet({silent:true});
 }
 
 async function loadAllData(){
@@ -705,30 +721,73 @@ async function handleImportPlansFile(file){
   }catch(err){ state.modalError = 'อ่านไฟล์ไม่สำเร็จ: '+err.message; render(); }
 }
 
+// Shared by both the manual Excel import and the live Google Sheet sync, so the two paths
+// never drift apart on which header names they recognize (they did, once — the roster
+// sheet's real header is "ทีมปัจจุบัน", which wasn't in the old candidate list at all,
+// silently leaving every employee's team blank).
+function mapEmployeeRow(r){
+  return {
+    team: pickColumn(r, ['ทีม','ทีมปัจจุบัน','ทีมที่ไปจัด','ทีมที่รับผิดชอบ','ทีมงาน','Team','ตำแหน่ง']),
+    area: pickColumn(r, ['Area','Areaดูแล','area','พื้นที่']),
+    code: pickColumn(r, ['รหัสพนักงาน']),
+    name: pickColumn(r, ['ชื่อพนักงาน']),
+    nickname: pickColumn(r, ['ชื่อเล่น']),
+    gender: pickColumn(r, ['เพศ']),
+    address: pickColumn(r, ['ที่อยู่']),
+    coordinates: pickColumn(r, ['พิกัด']),
+    phone: pickColumn(r, ['เบอร์โทร','เบอร์โทรศัพท์']),
+  };
+}
+// Full-replace the employees table (delete-all + re-insert) with a freshly mapped list —
+// shared commit step for both the Excel-file import and the Google Sheet sync below.
+async function replaceEmployees(emps){
+  if(emps.length===0) throw new Error('ไม่พบข้อมูลพนักงาน (ตรวจสอบว่ามีคอลัมน์ "ชื่อพนักงาน")');
+  const { error: delErr } = await sb.from('employees').delete().not('id','is',null);
+  if(delErr) console.error(delErr);
+  const { error: insErr } = await sb.from('employees').insert(emps);
+  if(insErr) throw new Error(insErr.message+' — ถ้าฟิลด์ใหม่ (ที่อยู่/พิกัด/เบอร์โทร) ยังไม่มีในตาราง ให้รัน SQL เพิ่มคอลัมน์ก่อน');
+  state.employees = emps;
+}
+
 async function handleImportEmployeesFile(file){
   try{
     const wb = await readWorkbook(file);
     const sheet = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, {defval:null, raw:true});
-    const emps = rows.map(r=>({
-      team: pickColumn(r, ['ทีม','ทีมที่ไปจัด','ทีมที่รับผิดชอบ','ทีมงาน','Team','ตำแหน่ง']),
-      area: pickColumn(r, ['Area','Areaดูแล','area','พื้นที่']),
-      code: pickColumn(r, ['รหัสพนักงาน']),
-      name: pickColumn(r, ['ชื่อพนักงาน']),
-      nickname: pickColumn(r, ['ชื่อเล่น']),
-      gender: pickColumn(r, ['เพศ']),
-      address: pickColumn(r, ['ที่อยู่']),
-      coordinates: pickColumn(r, ['พิกัด']),
-      phone: pickColumn(r, ['เบอร์โทร','เบอร์โทรศัพท์']),
-    })).filter(e=>e.name);
-    if(emps.length===0){ state.modalError='ไม่พบข้อมูลพนักงานในไฟล์นี้'; render(); return; }
-    const { error: delErr } = await sb.from('employees').delete().not('id','is',null);
-    if(delErr) console.error(delErr);
-    const { error: insErr } = await sb.from('employees').insert(emps);
-    if(insErr){ state.modalError = 'บันทึกไม่สำเร็จ: '+insErr.message+' — ถ้าฟิลด์ใหม่ (ที่อยู่/พิกัด/เบอร์โทร) ยังไม่มีในตาราง ให้รัน SQL เพิ่มคอลัมน์ก่อน'; render(); return; }
-    state.employees = emps;
+    const emps = rows.map(mapEmployeeRow).filter(e=>e.name);
+    await replaceEmployees(emps);
     closeModal(); showToast(`นำเข้ารายชื่อพนักงาน ${emps.length} คนเรียบร้อย (แทนที่รายชื่อเดิมทั้งหมด)`); render();
   }catch(err){ state.modalError = 'อ่านไฟล์ไม่สำเร็จ: '+err.message; render(); }
+}
+
+// Live sync: pull the roster straight from the "รายชื่อพนักงานทีมกิจ" Google Sheet (shared
+// as "Anyone with the link: Viewer") via its public gviz CSV export — no API key needed,
+// consistent with the rest of this app's no-login, talk-to-the-backend-directly design.
+// Runs automatically on every page load (see init()) and can also be triggered on demand
+// from the "นำเข้ารายชื่อพนักงาน" dialog. A failure here (network hiccup, sheet unshared,
+// gid/tab changed) never breaks the rest of the app — it just keeps whatever roster was
+// last synced successfully and records the error for display in that dialog.
+async function syncEmployeesFromSheet(opts){
+  opts = opts || {};
+  state.employeeSync = {...state.employeeSync, status:'syncing'};
+  if(!opts.silent) render();
+  try{
+    const res = await fetch(employeeSheetCsvUrl(), {cache:'no-store'});
+    if(!res.ok) throw new Error('เปิด Google Sheet ไม่สำเร็จ (HTTP '+res.status+') — ตรวจสอบว่ายังแชร์เป็น "ทุกคนที่มีลิงก์ดูได้" อยู่');
+    const csvText = await res.text();
+    const wb = XLSX.read(csvText, {type:'string'});
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, {defval:null, raw:true});
+    const emps = rows.map(mapEmployeeRow).filter(e=>e.name);
+    await replaceEmployees(emps);
+    state.employeeSync = { status:'ok', lastSyncedAt: Date.now(), error:null, count: emps.length };
+    if(!opts.silent) showToast(`ซิงค์รายชื่อพนักงานจาก Google Sheet แล้ว (${emps.length} คน)`);
+  }catch(err){
+    console.error('syncEmployeesFromSheet failed', err);
+    state.employeeSync = {...state.employeeSync, status:'error', error: err.message||String(err)};
+    if(!opts.silent) showToast('ซิงค์จาก Google Sheet ไม่สำเร็จ: '+(err.message||err));
+  }
+  render();
 }
 
 /* ============ Photo handling ============ */
@@ -802,7 +861,7 @@ function render(){
       <div class="masthead-actions">
         <button class="btn btn-sm btn-ghost" data-act="goHelp">📘 คู่มือการใช้งาน</button>
         ${state.view==='home' ? `
-          <button class="btn btn-sm btn-ghost" data-act="importEmployees">นำเข้ารายชื่อพนักงาน</button>
+          <button class="btn btn-sm btn-ghost" data-act="importEmployees">รายชื่อพนักงาน</button>
           <button class="btn btn-sm btn-ghost" data-act="settingsTypes">ตั้งค่าประเภทงาน</button>
           ${state.plans.length>0 ? `<button class="btn btn-sm btn-ghost" data-act="cleanupOldPlans">จัดเก็บงานที่จบ + ลบงานที่ยังไม่เริ่ม</button>` : ''}
           ${state.plans.length>0 ? `<button class="btn btn-sm btn-ghost" data-act="resetPlans" style="color:var(--brand-red);">ล้างแผนงานทั้งหมด</button>` : ''}
@@ -1187,11 +1246,25 @@ function renderModal(){
   }
 
   if(state.modal==='importEmployees'){
+    const sync = state.employeeSync;
+    let syncStatusHtml;
+    if(sync.status==='syncing'){
+      syncStatusHtml = `<div class="team-banner assigned">กำลังซิงค์จาก Google Sheet…</div>`;
+    } else if(sync.status==='error'){
+      syncStatusHtml = `<div class="team-banner unassigned">ซิงค์ล่าสุดไม่สำเร็จ: ${escapeHtml(sync.error||'')}${sync.lastSyncedAt ? ` (ใช้รายชื่อจากการซิงค์ครั้งก่อนเมื่อ ${fmtDate(sync.lastSyncedAt)})` : ''}</div>`;
+    } else if(sync.lastSyncedAt){
+      syncStatusHtml = `<div class="team-banner assigned">ซิงค์ล่าสุด: ${fmtDate(sync.lastSyncedAt)} (${sync.count} คน)</div>`;
+    } else {
+      syncStatusHtml = `<div class="team-banner unassigned">ยังไม่เคยซิงค์สำเร็จในเซสชันนี้</div>`;
+    }
     return `
     <div class="overlay" data-act="overlay"><div class="modal" data-act="stop">
-      <h3>นำเข้ารายชื่อพนักงาน</h3>
-      <div class="file-drop">อัปโหลดไฟล์ Excel รายชื่อพนักงาน (คอลัมน์: ทีม, Area, รหัสพนักงาน, ชื่อพนักงาน, ชื่อเล่น, เพศ)<br><input type="file" id="f-import-employees" accept=".xlsx,.xls"></div>
-      <div class="modal-note">การนำเข้าจะ "แทนที่" รายชื่อพนักงานทั้งหมดที่มีอยู่ในระบบ</div>
+      <h3>รายชื่อพนักงาน</h3>
+      <div class="modal-note">รายชื่อพนักงานซิงค์อัตโนมัติจาก <strong>Google Sheet "รายชื่อพนักงานทีมกิจ"</strong> ทุกครั้งที่เปิดหน้านี้ — แก้ไขรายชื่อ/ทีมในชีตแล้วรีเฟรชหน้าเว็บ ระบบจะดึงมาใหม่ให้เอง</div>
+      ${syncStatusHtml}
+      <div class="modal-actions" style="margin-bottom:16px;"><button class="btn btn-sm btn-claim" data-act="syncEmployeesNow" ${sync.status==='syncing'?'disabled':''}>ซิงค์เดี๋ยวนี้</button></div>
+      <div class="file-drop">หรืออัปโหลดไฟล์ Excel แทน (สำรอง กรณี Google Sheet เข้าไม่ได้) — คอลัมน์: ทีม, Area, รหัสพนักงาน, ชื่อพนักงาน, ชื่อเล่น, เพศ<br><input type="file" id="f-import-employees" accept=".xlsx,.xls"></div>
+      <div class="modal-note">ไม่ว่าจะซิงค์จาก Google Sheet หรืออัปโหลดไฟล์ ระบบจะ "แทนที่" รายชื่อพนักงานทั้งหมดที่มีอยู่ในระบบ</div>
       ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
       <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ปิด</button></div>
     </div></div>`;
@@ -1222,6 +1295,7 @@ function attachHandlers(){
     if(act==='extend'){ openModal('extend'); return; }
     if(act==='settingsTypes'){ openModal('settingsTypes'); return; }
     if(act==='importEmployees'){ openModal('importEmployees'); return; }
+    if(act==='syncEmployeesNow'){ syncEmployeesFromSheet({silent:false}); return; }
     if(act==='cleanupOldPlans'){ cleanupOldPlans(); return; }
     if(act==='resetPlans'){ resetAllPlans(); return; }
     if(act==='editTeam'){ state.editingTeam=true; state.teamManual=false; render(); return; }
