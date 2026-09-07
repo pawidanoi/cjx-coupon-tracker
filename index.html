@@ -131,6 +131,7 @@
   .owner-swatch{ width:10px; height:10px; border-radius:3px; display:inline-block; margin-right:7px; vertical-align:middle; border:1px solid rgba(0,0,0,.15); }
   .empty-row{ color:var(--ink-faint); font-style:italic; text-align:center; padding:20px; }
   .table-scroll{ overflow-x:auto; }
+  .roster-team-row td{ background:var(--brand-blue-soft); color:var(--brand-blue); font-weight:800; font-size:12px; padding:6px 8px; border-bottom:2px solid var(--brand-blue); }
 
   .filters{ display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
   .filters input, .filters select{ border:2px solid var(--line); background:var(--panel); padding:8px 11px; border-radius:var(--radius-sm); font-size:13px; }
@@ -215,6 +216,7 @@ let state = {
   historyFilterName:'', historyFilterDate:'',
   typeEditRows:[], viewPhotoUrl:null,
   employeeSync:{status:'idle', lastSyncedAt:null, error:null, count:0},
+  employeeListFilter:'',
 };
 
 const PALETTE = ['#F4D35E','#F2A6B0','#A7C7E7','#B7E4C7','#F6B26B','#C9B6E4','#E8C1A0','#9FD8D8','#D8B4E2','#C8D96F'];
@@ -357,6 +359,7 @@ function goHome(){ state.view='home'; state.currentPlanId=null; state.planData=n
 function goHelp(){ state.view='help'; render(); }
 function openModal(name){ state.modal=name; state.modalError=''; state.modalTab='single'; state.destroyPhoto=null;
   if(name==='settingsTypes'){ state.typeEditRows = state.couponTypes.map(t=>({...t})); }
+  if(name==='importEmployees'){ state.employeeListFilter=''; }
   render();
 }
 function closeModal(){ state.modal=null; state.modalError=''; state.destroyPhoto=null; render(); }
@@ -1257,13 +1260,34 @@ function renderModal(){
     } else {
       syncStatusHtml = `<div class="team-banner unassigned">ยังไม่เคยซิงค์สำเร็จในเซสชันนี้</div>`;
     }
+    const filter = (state.employeeListFilter||'').trim().toLowerCase();
+    const matches = e => !filter || [e.team,e.name,e.nickname,e.code,e.phone].some(v=>String(v||'').toLowerCase().includes(filter));
+    const grouped = teamsList().map(t=>({team:t, emps: employeesByTeam(t).filter(matches)})).filter(g=>g.emps.length);
+    const noTeam = state.employees.filter(e=>!e.team && matches(e));
+    const rosterRows = [
+      ...grouped.map(g=>`
+        <tr class="roster-team-row"><td colspan="4">${escapeHtml(g.team)} (${g.emps.length} คน)</td></tr>
+        ${g.emps.map(e=>`<tr><td>${escapeHtml(e.nickname||'-')}</td><td>${escapeHtml(e.name||'-')}</td><td>${escapeHtml(e.code||'-')}</td><td>${escapeHtml(e.phone||'-')}</td></tr>`).join('')}
+      `),
+      noTeam.length ? `
+        <tr class="roster-team-row"><td colspan="4">ยังไม่มีทีม (${noTeam.length} คน)</td></tr>
+        ${noTeam.map(e=>`<tr><td>${escapeHtml(e.nickname||'-')}</td><td>${escapeHtml(e.name||'-')}</td><td>${escapeHtml(e.code||'-')}</td><td>${escapeHtml(e.phone||'-')}</td></tr>`).join('')}
+      ` : '',
+    ].join('');
     return `
-    <div class="overlay" data-act="overlay"><div class="modal" data-act="stop">
+    <div class="overlay" data-act="overlay"><div class="modal wide" data-act="stop">
       <h3>รายชื่อพนักงาน</h3>
       <div class="modal-note">รายชื่อพนักงานซิงค์อัตโนมัติจาก <strong>Google Sheet "รายชื่อพนักงานทีมกิจ"</strong> ทุกครั้งที่เปิดหน้านี้ — แก้ไขรายชื่อ/ทีมในชีตแล้วรีเฟรชหน้าเว็บ ระบบจะดึงมาใหม่ให้เอง</div>
       ${syncStatusHtml}
       <div class="modal-actions" style="margin-bottom:16px;"><button class="btn btn-sm btn-claim" data-act="syncEmployeesNow" ${sync.status==='syncing'?'disabled':''}>ซิงค์เดี๋ยวนี้</button></div>
-      <div class="file-drop">หรืออัปโหลดไฟล์ Excel แทน (สำรอง กรณี Google Sheet เข้าไม่ได้) — คอลัมน์: ทีม, Area, รหัสพนักงาน, ชื่อพนักงาน, ชื่อเล่น, เพศ<br><input type="file" id="f-import-employees" accept=".xlsx,.xls"></div>
+      ${state.employees.length ? `
+        <input type="text" placeholder="ค้นหาชื่อ/ทีม/รหัส/เบอร์โทร..." value="${escapeHtml(state.employeeListFilter||'')}" data-act="filterEmployeeList" style="width:100%; margin-bottom:10px; border:2px solid var(--ink); padding:8px 10px; border-radius:var(--radius-sm); background:var(--paper); font-size:13px;">
+        <div class="table-scroll" style="max-height:340px; overflow-y:auto;">
+          <table><thead><tr><th>ชื่อเล่น</th><th>ชื่อ-สกุล</th><th>รหัสพนักงาน</th><th>เบอร์โทร</th></tr></thead>
+          <tbody>${rosterRows || `<tr><td colspan="4" class="empty-row">ไม่พบพนักงานที่ตรงกับคำค้นหา</td></tr>`}</tbody></table>
+        </div>
+      ` : `<div class="modal-note">ยังไม่มีรายชื่อพนักงานในระบบ — รอซิงค์จาก Google Sheet หรืออัปโหลดไฟล์ด้านล่าง</div>`}
+      <div class="file-drop" style="margin-top:14px;">หรืออัปโหลดไฟล์ Excel แทน (สำรอง กรณี Google Sheet เข้าไม่ได้) — คอลัมน์: ทีม, Area, รหัสพนักงาน, ชื่อพนักงาน, ชื่อเล่น, เพศ<br><input type="file" id="f-import-employees" accept=".xlsx,.xls"></div>
       <div class="modal-note">ไม่ว่าจะซิงค์จาก Google Sheet หรืออัปโหลดไฟล์ ระบบจะ "แทนที่" รายชื่อพนักงานทั้งหมดที่มีอยู่ในระบบ</div>
       ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
       <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ปิด</button></div>
@@ -1358,6 +1382,7 @@ function attachHandlers(){
     if(el.dataset.act==='filterName'){ state.historyFilterName = el.value; render(); refocus('input[data-act="filterName"]'); }
     if(el.dataset.act==='filterDate'){ state.historyFilterDate = el.value; render(); }
     if(el.dataset.act==='homeSearch'){ state.homeFilter.search = el.value; render(); refocus('input[data-act="homeSearch"]'); }
+    if(el.dataset.act==='filterEmployeeList'){ state.employeeListFilter = el.value; render(); refocus('input[data-act="filterEmployeeList"]'); }
   };
   app.onkeydown = (e) => { if(e.key==='Escape'){ if(state.viewPhotoUrl){ state.viewPhotoUrl=null; render(); } else if(state.modal){ closeModal(); } } };
   const typeSel = app.querySelector('select[data-act="homeType"]'); if(typeSel) typeSel.onchange = (e)=>{ state.homeFilter.type = e.target.value; render(); };
