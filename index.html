@@ -637,6 +637,22 @@ function toIsoDate(v){
   if(isNaN(d)) return null;
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
 }
+// Matching an imported row's task-type text (e.g. "เปิดสาขาใหม่") against the coupon types
+// configured in Settings used to be a strict === comparison — any stray leading/trailing
+// space, doubled internal space, or invisible character (zero-width space/BOM, which can
+// sneak in via copy-paste into a spreadsheet or a CSV export) silently fails the match and
+// locks the plan's coupon count at 0, with no visible sign except the toast's "ไม่พบ
+// ประเภทงานในระบบ" count. Normalizing both sides the same way before comparing removes that
+// whole class of false negatives without weakening the check (a genuinely different type
+// name still won't match).
+function normalizeTypeName(s){
+  return String(s||'').replace(/[​-‍﻿]/g,'').trim().replace(/\s+/g,' ');
+}
+function findCouponType(taskType){
+  const norm = normalizeTypeName(taskType);
+  if(!norm) return null;
+  return state.couponTypes.find(t=>normalizeTypeName(t.name)===norm) || null;
+}
 // The "ตารางงานรายวัน" (daily schedule export) format gives dates as plain D/M/YYYY
 // text, e.g. "1/10/2026" meaning 1 Oct 2026. new Date("1/10/2026") in JS parses this
 // as M/D/Y (10 Jan) — silently wrong for most of the month — so it must be parsed
@@ -752,7 +768,7 @@ async function handleImportScheduleExportRows(rows){
       const key = `${code}|${startDate}|${taskType}`;
       if(existingKeys.has(key)){ skipped++; continue; }
       existingKeys.add(key);
-      const typeInfo = state.couponTypes.find(t=>t.name===taskType);
+      const typeInfo = findCouponType(taskType);
       if(!typeInfo) noType++;
       toInsert.push({ code, branchName: block[0].branchName||'', taskType, startDate, endDate, total: typeInfo?typeInfo.count:0, team });
     }
@@ -818,7 +834,7 @@ async function handleImportPlansFile(file){
       const startDate = toIsoDate(row['วันที่เริ่มงาน']);
       const key = `${branchCode}|${startDate}|${taskType}`;
       if(existingKeys.has(key)){ skipped++; continue; }
-      const typeInfo = state.couponTypes.find(t=>t.name===taskType);
+      const typeInfo = findCouponType(taskType);
       if(!typeInfo) noType++;
       const total = typeInfo ? typeInfo.count : 0;
       const burmeseRaw = (row['ชาวพม่า']||'').toString().trim();
