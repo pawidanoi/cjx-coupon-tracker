@@ -612,7 +612,12 @@ async function resetAllPlans(){
 function readWorkbook(file){
   return new Promise((resolve, reject)=>{
     const reader = new FileReader();
-    reader.onload = (e)=>{ try{ resolve(XLSX.read(new Uint8Array(e.target.result), {type:'array'})); } catch(err){ reject(err); } };
+    // raw:true here disables SheetJS's CSV/DSV cell-type sniffing (numbers, dates, booleans),
+    // so a plain-text date like "1/10/2026" in an uploaded CSV comes through as that exact
+    // string instead of being silently guessed-and-converted to an Excel serial using the
+    // wrong M/D vs D/M assumption. This only affects CSV/TXT parsing — binary .xlsx/.xls
+    // cell values keep their own stored types either way, so existing Excel imports are unaffected.
+    reader.onload = (e)=>{ try{ resolve(XLSX.read(new Uint8Array(e.target.result), {type:'array', raw:true})); } catch(err){ reject(err); } };
     reader.onerror = ()=> reject(new Error('อ่านไฟล์ไม่สำเร็จ'));
     reader.readAsArrayBuffer(file);
   });
@@ -631,6 +636,22 @@ function toIsoDate(v){
   const d = new Date(v);
   if(isNaN(d)) return null;
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+}
+// The "ตารางงานรายวัน" (daily schedule export) format gives dates as plain D/M/YYYY
+// text, e.g. "1/10/2026" meaning 1 Oct 2026. new Date("1/10/2026") in JS parses this
+// as M/D/Y (10 Jan) — silently wrong for most of the month — so it must be parsed
+// explicitly here rather than falling through to toIsoDate()'s generic Date() fallback.
+function parseDMYDate(v){
+  if(v===null || v===undefined || v==='') return null;
+  if(typeof v === 'number') return excelSerialToIso(v);
+  if(v instanceof Date) return toIsoDate(v);
+  const s = String(v).trim();
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  if(m){
+    const day = parseInt(m[1],10), month = parseInt(m[2],10), year = parseInt(m[3],10);
+    return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  }
+  return toIsoDate(v);
 }
 function normalizeHeader(h){ return String(h).trim().toLowerCase().replace(/\s+/g,''); }
 function pickColumn(row, candidates){
@@ -666,12 +687,116 @@ function findCouponTypeSheet(wb, excludeName){
   return null;
 }
 
+// Detects the daily-schedule export format (one row per team per day: ประเภท, รหัสสาขา,
+// ชื่อสาขา, ประเภทแฟร์, ทีม, วันที่) as opposed to the older flat plan-list format
+// (สาขา, วันที่เริ่มงาน, ...). The schedule export has no "วันที่เริ่มงาน" column at all,
+// so that absence combined with the presence of "ประเภท"+"วันที่" is a safe signature.
+function isScheduleExportFormat(rows){
+  if(!rows.length) return false;
+  const keys = Object.keys(rows[0]).map(normalizeHeader);
+  const has = (h)=> keys.includes(normalizeHeader(h));
+  return has('ประเภท') && has('วันที่') && has('ชื่อสาขา') && !has('วันที่เริ่มงาน');
+}
+// The schedule export labels teams "ทีม 1".."ทีม 16"; the employee roster (synced from
+// the Google Sheet) labels the same 16 teams "SMA1".."SMA16". Map the former to the
+// latter so an imported plan's team lines up with the employees already assigned to it —
+// otherwise the plan would show a "ทีม 1" that matches none of the roster's teams, the
+// exact class of mismatch already fixed once this project (see teamsList()/pickTeamColumn).
+function mapScheduleTeamLabel(raw){
+  const s = String(raw||'').trim();
+  const m = /^ทีม\s*(\d+)$/.exec(s);
+  return m ? ('SMA'+m[1]) : s;
+}
+// New daily-schedule-export importer: groups each team's rows (sorted by date) into
+// contiguous same-branch blocks — a block is one branch "job" for that team, spanning
+// its prep (วัน PR) + event (วันจัดงาน) days, ended by a travel/off row (blank branch) or
+// a different branch code. Per the user's explicit request, a plan's start/end date is
+// taken from ONLY the วันจัดงาน rows in the block, never the PR/travel/off days.
+async function handleImportScheduleExportRows(rows){
+  const byTeam = new Map();
+  for(const r of rows){
+    const teamRaw = pickColumn(r, ['ทีม']);
+    const iso = parseDMYDate(r['วันที่'] !== undefined ? r['วันที่'] : pickColumn(r, ['วันที่']));
+    if(!teamRaw || !iso) continue;
+    const rec = {
+      type: pickColumn(r, ['ประเภท']),
+      branchCode: pickColumn(r, ['รหัสสาขา']),
+      branchName: pickColumn(r, ['ชื่อสาขา']),
+      fairType: pickColumn(r, ['ประเภทแฟร์']),
+      date: iso,
+    };
+    if(!byTeam.has(teamRaw)) byTeam.set(teamRaw, []);
+    byTeam.get(teamRaw).push(rec);
+  }
+
+  const existingKeys = new Set(state.plans.map(p=>`${p.branchCode}|${p.startDate}|${p.taskType}`));
+  const toInsert = [];
+  let skipped=0, noType=0, noEventDay=0;
+
+  for(const [teamRaw, teamRows] of byTeam.entries()){
+    teamRows.sort((a,b)=> a.date<b.date?-1:a.date>b.date?1:0);
+    const team = mapScheduleTeamLabel(teamRaw);
+    let i=0;
+    while(i<teamRows.length){
+      const code = teamRows[i].branchCode;
+      if(!code){ i++; continue; } // travel/off day between blocks — not part of any plan
+      let j=i;
+      const block=[];
+      while(j<teamRows.length && teamRows[j].branchCode===code){ block.push(teamRows[j]); j++; }
+      i=j;
+      const eventDays = block.filter(r=>r.type==='วันจัดงาน');
+      if(eventDays.length===0){ noEventDay++; continue; }
+      const startDate = eventDays.reduce((min,r)=> r.date<min?r.date:min, eventDays[0].date);
+      const endDate = eventDays.reduce((max,r)=> r.date>max?r.date:max, eventDays[0].date);
+      const taskType = block[0].fairType || '';
+      const key = `${code}|${startDate}|${taskType}`;
+      if(existingKeys.has(key)){ skipped++; continue; }
+      existingKeys.add(key);
+      const typeInfo = state.couponTypes.find(t=>t.name===taskType);
+      if(!typeInfo) noType++;
+      toInsert.push({ code, branchName: block[0].branchName||'', taskType, startDate, endDate, total: typeInfo?typeInfo.count:0, team });
+    }
+  }
+
+  let added=0;
+  for(const p of toInsert){
+    const id = 'p_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7)+added;
+    const { error: e1 } = await sb.from('plans').insert({
+      id, name: p.branchName, branch_code: p.code, province: '',
+      task_type: p.taskType||'ไม่ระบุ', total_coupons: p.total, team: p.team,
+      needs_burmese: false, start_date: p.startDate, end_date: p.endDate,
+      archived:false,
+    });
+    if(e1){ console.error(e1); continue; }
+    if(p.total>0){
+      const couponRows = Array.from({length:p.total},(_,i)=>({plan_id:id, no:i+1, owner:null, destroyed:false}));
+      const { error: e2 } = await sb.from('coupons').insert(couponRows);
+      if(e2) console.error(e2);
+    }
+    added++;
+  }
+
+  await loadAllData();
+  closeModal();
+  let msg = `นำเข้า ${added} แผนงานใหม่จากไฟล์ตารางงานรายวัน (นับวันที่จากวันจัดงานเท่านั้น)`;
+  if(skipped) msg += ` — ข้าม ${skipped} รายการซ้ำ`;
+  if(noType) msg += ` — ${noType} รายการไม่พบประเภทงานในระบบ ถูกล็อคที่ 0 ใบ`;
+  if(noEventDay) msg += ` — ข้าม ${noEventDay} ช่วงที่ไม่มี "วันจัดงาน"`;
+  showToast(msg); render();
+}
+
 async function handleImportPlansFile(file){
   try{
     const wb = await readWorkbook(file);
     const planSheetName = wb.SheetNames.find(n=>n.trim()==='แผนงาน') || wb.SheetNames[0];
-    const typeSheetName = findCouponTypeSheet(wb, planSheetName);
     const planRows = XLSX.utils.sheet_to_json(wb.Sheets[planSheetName], {defval:null, raw:true});
+
+    if(isScheduleExportFormat(planRows)){
+      await handleImportScheduleExportRows(planRows);
+      return;
+    }
+
+    const typeSheetName = findCouponTypeSheet(wb, planSheetName);
 
     if(typeSheetName){
       const typeRows = XLSX.utils.sheet_to_json(wb.Sheets[typeSheetName], {defval:null, raw:true});
@@ -1135,7 +1260,7 @@ function renderModal(){
         ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
         <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ยกเลิก</button><button class="btn btn-claim" data-act="submitNewPlanSingle">สร้าง</button></div>
       ` : `
-        <div class="file-drop">อัปโหลดไฟล์ Excel แผนงาน (ต้องมีชีท "แผนงาน" และ "จำนวนคูปอง" — ถ้ามีคอลัมน์ "ทีม" ระบบจะกำหนดทีมให้อัตโนมัติ)<br><input type="file" id="f-import-plans" accept=".xlsx,.xls"></div>
+        <div class="file-drop">อัปโหลดไฟล์ Excel แผนงาน (ต้องมีชีท "แผนงาน" และ "จำนวนคูปอง" — ถ้ามีคอลัมน์ "ทีม" ระบบจะกำหนดทีมให้อัตโนมัติ) หรือไฟล์ตารางงานรายวัน (.csv คอลัมน์ ประเภท/รหัสสาขา/ชื่อสาขา/ประเภทแฟร์/ทีม/วันที่ — ระบบจะจับวันที่เริ่ม-จบจาก "วันจัดงาน" เท่านั้น)<br><input type="file" id="f-import-plans" accept=".xlsx,.xls,.csv"></div>
         <div class="modal-note">ระบบจะข้ามแผนงานที่มีรหัสสาขา + วันที่เริ่ม + ประเภทงานตรงกับที่มีอยู่แล้วอัตโนมัติ</div>
         ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
         <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ปิด</button></div>
