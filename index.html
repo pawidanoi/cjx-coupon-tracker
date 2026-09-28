@@ -211,7 +211,7 @@ let state = {
   plans:[], planData:null, employees:[], couponTypes:[],
   modal:null, modalTab:'single', modalError:'',
   claimManual:false, transferManual:false, destroyManual:false,
-  editingTeam:false, teamManual:false, destroyPhoto:null,
+  editingTeam:false, teamManual:false, destroyPhoto:null, editPlanTypeCustom:false,
   homeFilter:{search:'', type:'', status:'all', team:''},
   historyFilterName:'', historyFilterDate:'',
   typeEditRows:[], viewPhotoUrl:null,
@@ -254,6 +254,19 @@ function teamsList(){
   return [...new Set([...fromEmployees, ...fromPlans].filter(t=>t && String(t).trim()!==''))].sort();
 }
 function employeesByTeam(team){ return state.employees.filter(e=>e.team===team).sort((a,b)=>a.nickname.localeCompare(b.nickname)); }
+// Branch directory derived from plans already in the system (there's no separate branch
+// master table) — powers the searchable ชื่อสาขา dropdown and its matching รหัสสาขา auto-fill
+// on the create/edit plan forms. Dedupes by branch code when one exists, else by name.
+function branchesList(){
+  const seen = new Map();
+  state.plans.forEach(p=>{
+    const name = (p.name||'').trim(); if(!name) return;
+    const code = (p.branchCode||'').trim();
+    const key = code || ('name:'+name);
+    if(!seen.has(key)) seen.set(key, {name, code});
+  });
+  return [...seen.values()].sort((a,b)=>a.name.localeCompare(b.name,'th'));
+}
 
 /* ============ Block helpers ============ */
 function ownerBlocks(){
@@ -360,6 +373,7 @@ function goHelp(){ state.view='help'; render(); }
 function openModal(name){ state.modal=name; state.modalError=''; state.modalTab='single'; state.destroyPhoto=null;
   if(name==='settingsTypes'){ state.typeEditRows = state.couponTypes.map(t=>({...t})); }
   if(name==='importEmployees'){ state.employeeListFilter=''; }
+  if(name==='editPlan'){ const p=currentPlan(); state.editPlanTypeCustom = !!(p && !state.couponTypes.find(t=>t.name===p.taskType)); }
   render();
 }
 function closeModal(){ state.modal=null; state.modalError=''; state.destroyPhoto=null; render(); }
@@ -399,6 +413,82 @@ async function createPlanSingle(fields){
   closeModal();
   showToast(`สร้างแผนงาน "${name}" เรียบร้อย — คูปอง 1–${total} (ล็อคตามประเภท "${taskType}")`);
   openPlan(id);
+}
+
+// Lets the user fix a plan's own fields directly (name, branch code, dates, task type,
+// team-less coupon count) instead of me editing the live database by hand — useful for
+// correcting a mis-imported plan (wrong date range, wrong/missing coupon type) or a
+// duplicate created by an import quirk, without waiting on a code fix each time.
+async function saveEditPlan(fields){
+  const plan = currentPlan(); if(!plan) return;
+  const name = (fields.name||'').trim();
+  if(!name){ state.modalError='กรุณาใส่ชื่อสาขา/แผนงาน'; render(); return; }
+
+  let total, taskType;
+  if(fields.typeMode==='custom'){
+    const cname = (fields.customName||'').trim(); const ccount = parseInt(fields.customCount,10);
+    if(!cname || isNaN(ccount) || ccount<0){ state.modalError='กรุณาใส่ชื่อประเภทงานและจำนวนคูปองให้ถูกต้อง'; render(); return; }
+    taskType = cname; total = ccount;
+    if(!state.couponTypes.find(t=>t.name===cname)){
+      await sb.from('coupon_types').upsert({name:cname, count:ccount}, {onConflict:'name'});
+      state.couponTypes.push({name:cname, count:ccount});
+    }
+  } else {
+    const t = state.couponTypes.find(t=>t.name===fields.typeName);
+    if(!t){ state.modalError='กรุณาเลือกประเภทงาน'; render(); return; }
+    taskType = t.name; total = t.count;
+  }
+
+  // Never let a resize erase a coupon slot that's already been claimed or destroyed —
+  // block shrinking below the highest such slot number instead of silently deleting it.
+  const usedNos = state.planData.coupons.filter(c=>c.owner||c.destroyed).map(c=>c.no);
+  const maxUsed = usedNos.length ? Math.max(...usedNos) : 0;
+  if(total < maxUsed){
+    state.modalError = `ลดจำนวนคูปองต่ำกว่า ${maxUsed} ใบไม่ได้ เพราะมีการเบิก/ทำลายไปถึงเบอร์นั้นแล้ว`;
+    render(); return;
+  }
+
+  const oldTotal = plan.totalCoupons;
+  if(total > oldTotal){
+    const rows = Array.from({length: total-oldTotal}, (_,i)=>({plan_id:plan.id, no:oldTotal+1+i, owner:null, destroyed:false}));
+    const { error } = await sb.from('coupons').insert(rows);
+    if(error){ console.error(error); state.modalError='เพิ่มคูปองไม่สำเร็จ: '+error.message; render(); return; }
+  } else if(total < oldTotal){
+    const { error } = await sb.from('coupons').delete().eq('plan_id',plan.id).gt('no', total);
+    if(error){ console.error(error); state.modalError='ลดจำนวนคูปองไม่สำเร็จ: '+error.message; render(); return; }
+  }
+
+  const branchCode = (fields.branchCode||'').trim(), province = (fields.province||'').trim();
+  const startDate = fields.startDate || null, endDate = fields.endDate || null, needsBurmese = !!fields.needsBurmese;
+  const { error: e1 } = await sb.from('plans').update({
+    name, branch_code: branchCode, province, task_type: taskType, total_coupons: total,
+    start_date: startDate, end_date: endDate, needs_burmese: needsBurmese,
+  }).eq('id', plan.id);
+  if(e1){ console.error(e1); state.modalError='บันทึกไม่สำเร็จ: '+e1.message; render(); return; }
+
+  Object.assign(plan, { name, branchCode, province, taskType, totalCoupons: total, startDate, endDate, needsBurmese });
+  await refreshCurrentPlan();
+  closeModal();
+  showToast(`บันทึกการแก้ไขแผนงาน "${name}" แล้ว`);
+  render();
+}
+
+async function deletePlanConfirm(){
+  const plan = currentPlan(); if(!plan) return;
+  const assignedCount = state.planData.coupons.filter(c=>c.owner).length;
+  const warn = assignedCount>0 ? `\n\n⚠️ มีคูปองที่เบิกไปแล้ว ${assignedCount} ใบในแผนงานนี้ — ลบแล้วประวัติการเบิกจะหายไปด้วย` : '';
+  if(!window.confirm(`ลบแผนงาน "${plan.name}" (${plan.branchCode||'-'}) ทิ้งทั้งหมด? การลบนี้กู้คืนไม่ได้${warn}`)) return;
+  const { error } = await sb.from('plans').delete().eq('id', plan.id);
+  if(error){ console.error(error); showToast('ลบไม่สำเร็จ: '+error.message); return; }
+  const name = plan.name;
+  state.plans = state.plans.filter(p=>p.id!==plan.id);
+  // Close the modal state directly instead of calling closeModal() here: closeModal() would
+  // render() immediately, but state.view/currentPlanId still point at the plan we just
+  // removed from state.plans, so renderPlan() would crash reading .name off an undefined
+  // currentPlan(). goHome() resets view/currentPlanId together and renders once, safely.
+  state.modal = null; state.modalError = ''; state.destroyPhoto = null;
+  goHome();
+  showToast(`ลบแผนงาน "${name}" แล้ว`);
 }
 
 async function toggleArchive(id){
@@ -1157,6 +1247,7 @@ function renderPlan(){
         <button class="btn btn-transfer" data-act="transfer" ${!plan.team?'disabled':''}>โอน / สลับ</button>
         <button class="btn btn-return" data-act="returnCoupons" ${!plan.team?'disabled':''}>คืนคูปอง</button>
         <button class="btn btn-extend" data-act="extend">ขอคูปองเพิ่ม</button>
+        <button class="btn btn-ghost" data-act="editPlan">แก้ไขแผนงาน</button>
         ${destroyBtn}
       </div>
     </div>
@@ -1244,6 +1335,7 @@ function renderModal(){
 
   if(state.modal==='newPlan'){
     const typeOpts = state.couponTypes.map(t=>`<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)} (${t.count} ใบ)</option>`).join('');
+    const branchOptsHtml = branchesList().map(b=>`<option value="${escapeHtml(b.name)}"></option>`).join('');
     return `
     <div class="overlay" data-act="overlay"><div class="modal wide" data-act="stop">
       <h3>สร้างแผนงานใหม่</h3>
@@ -1252,7 +1344,7 @@ function renderModal(){
         <button class="modal-tab ${state.modalTab==='import'?'active':''}" data-act="modalTab" data-tab="import">นำเข้าจาก Excel</button>
       </div>
       ${state.modalTab==='single' ? `
-        <div class="field"><label>ชื่อสาขา / แผนงาน</label><input type="text" id="f-name" placeholder="เช่น หมู่บ้านสิรีนเฮ้าส์" autofocus></div>
+        <div class="field"><label>ชื่อสาขา / แผนงาน</label><input type="text" id="f-name" list="branch-options" data-act="branchName" placeholder="พิมพ์เพื่อค้นหา หรือใส่ชื่อใหม่" autofocus><datalist id="branch-options">${branchOptsHtml}</datalist></div>
         <div class="field-row">
           <div class="field"><label>รหัสสาขา (ถ้ามี)</label><input type="text" id="f-branchcode" placeholder="CJX00126"></div>
           <div class="field"><label>จังหวัด (ถ้ามี)</label><input type="text" id="f-province" placeholder="นนทบุรี"></div>
@@ -1348,6 +1440,51 @@ function renderModal(){
       <div class="field"><label>หมายเหตุ (ถ้ามี)</label><input type="text" id="f-extend-note" placeholder="เช่น อนุมัติเพิ่มจากหัวหน้างาน"></div>
       ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
       <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ยกเลิก</button><button class="btn btn-extend" data-act="submitExtend">ขอเพิ่ม</button></div>
+    </div></div>`;
+  }
+
+  if(state.modal==='editPlan'){
+    const usedNos = state.planData.coupons.filter(c=>c.owner||c.destroyed).map(c=>c.no);
+    const maxUsed = usedNos.length ? Math.max(...usedNos) : 0;
+    // Only one <option> may carry `selected` — if both the "__custom__" option and a matching
+    // preset option were marked selected (e.g. right after saving a custom type that happens
+    // to match one already in the list), the browser silently honors whichever is later in the
+    // DOM, discarding state.editPlanTypeCustom. Gate the preset match on !editPlanTypeCustom.
+    const typeOptsEdit = state.couponTypes.map(t=>`<option value="${escapeHtml(t.name)}" ${(!state.editPlanTypeCustom && plan.taskType===t.name)?'selected':''}>${escapeHtml(t.name)} (${t.count} ใบ)</option>`).join('');
+    const matchedType = state.couponTypes.find(t=>t.name===plan.taskType);
+    const branchOptsEditHtml = branchesList().map(b=>`<option value="${escapeHtml(b.name)}"></option>`).join('');
+    return `
+    <div class="overlay" data-act="overlay"><div class="modal wide" data-act="stop">
+      <h3>แก้ไขแผนงาน</h3>
+      <div class="field"><label>ชื่อสาขา / แผนงาน</label><input type="text" id="f-edit-name" list="branch-options-edit" data-act="branchNameEdit" value="${escapeHtml(plan.name)}" autofocus><datalist id="branch-options-edit">${branchOptsEditHtml}</datalist></div>
+      <div class="field-row">
+        <div class="field"><label>รหัสสาขา (ถ้ามี)</label><input type="text" id="f-edit-branchcode" value="${escapeHtml(plan.branchCode||'')}"></div>
+        <div class="field"><label>จังหวัด (ถ้ามี)</label><input type="text" id="f-edit-province" value="${escapeHtml(plan.province||'')}"></div>
+      </div>
+      <div class="field">
+        <label>ประเภทงาน</label>
+        <select id="f-edit-tasktype">
+          <option value="__custom__" ${state.editPlanTypeCustom?'selected':''}>— กำหนดเอง / ไม่อยู่ในรายการ —</option>
+          ${typeOptsEdit}
+        </select>
+      </div>
+      <div id="f-edit-type-locked" class="field" style="display:${state.editPlanTypeCustom?'none':''};"><label>จำนวนคูปอง (ล็อคตามประเภทงาน)</label><div class="locked-total">${matchedType ? matchedType.count+' ใบ' : (plan.totalCoupons+' ใบ (เดิม)')}</div></div>
+      <div id="f-edit-type-custom" class="field-row" style="display:${state.editPlanTypeCustom?'flex':'none'};">
+        <div class="field"><label>ชื่อประเภทงาน</label><input type="text" id="f-edit-custom-name" value="${escapeHtml(plan.taskType||'')}"></div>
+        <div class="field"><label>จำนวนคูปองทั้งหมด</label><input type="number" id="f-edit-custom-count" min="0" value="${plan.totalCoupons}"></div>
+      </div>
+      ${maxUsed>0 ? `<div class="modal-note">เบิก/ทำลายไปแล้วถึงเบอร์ ${maxUsed} — ลดจำนวนคูปองต่ำกว่านี้ไม่ได้</div>` : ''}
+      <div class="field-row">
+        <div class="field"><label>วันที่เริ่ม</label><input type="date" id="f-edit-startdate" value="${plan.startDate||''}"></div>
+        <div class="field"><label>วันที่จบ</label><input type="date" id="f-edit-enddate" value="${plan.endDate||''}"></div>
+      </div>
+      <div class="field-check"><input type="checkbox" id="f-edit-burmese" ${plan.needsBurmese?'checked':''}><label for="f-edit-burmese" style="margin:0; text-transform:none; font-size:13px;">ต้องการสื่อพม่า</label></div>
+      ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
+      <div class="modal-actions">
+        <button class="btn btn-destroy" data-act="deletePlan" style="margin-right:auto;">ลบแผนงานนี้</button>
+        <button class="btn btn-ghost" data-act="closeModal">ยกเลิก</button>
+        <button class="btn btn-claim" data-act="submitEditPlan">บันทึก</button>
+      </div>
     </div></div>`;
   }
 
@@ -1458,6 +1595,8 @@ function attachHandlers(){
     if(act==='returnCoupons'){ if(el.disabled) return; openModal('returnCoupons'); return; }
     if(act==='destroyCoupons'){ if(el.disabled) return; state.destroyManual=false; openModal('destroyCoupons'); return; }
     if(act==='extend'){ openModal('extend'); return; }
+    if(act==='editPlan'){ openModal('editPlan'); return; }
+    if(act==='deletePlan'){ deletePlanConfirm(); return; }
     if(act==='settingsTypes'){ openModal('settingsTypes'); return; }
     if(act==='importEmployees'){ openModal('importEmployees'); return; }
     if(act==='syncEmployeesNow'){ syncEmployeesFromSheet({silent:false}); return; }
@@ -1500,6 +1639,21 @@ function attachHandlers(){
     if(act==='submitTransfer'){ transferCoupons(document.getElementById('f-from').value, document.getElementById('f-to').value, getEmployeeValue('transfer', state.transferManual)); return; }
     if(act==='submitReturn'){ returnCoupons(document.getElementById('f-return-from').value, document.getElementById('f-return-to').value); return; }
     if(act==='submitExtend'){ extendCoupons(document.getElementById('f-extend-amount').value, document.getElementById('f-extend-note').value); return; }
+    if(act==='submitEditPlan'){
+      const typeSel = document.getElementById('f-edit-tasktype').value;
+      saveEditPlan({
+        name: document.getElementById('f-edit-name').value,
+        branchCode: document.getElementById('f-edit-branchcode').value,
+        province: document.getElementById('f-edit-province').value,
+        typeMode: typeSel==='__custom__' ? 'custom' : 'preset', typeName: typeSel,
+        customName: document.getElementById('f-edit-custom-name') ? document.getElementById('f-edit-custom-name').value : '',
+        customCount: document.getElementById('f-edit-custom-count') ? document.getElementById('f-edit-custom-count').value : '',
+        startDate: document.getElementById('f-edit-startdate').value,
+        endDate: document.getElementById('f-edit-enddate').value,
+        needsBurmese: document.getElementById('f-edit-burmese').checked,
+      });
+      return;
+    }
     if(act==='submitDestroy'){ destroyAllRemaining(getEmployeeValue('destroy', state.destroyManual), document.getElementById('f-destroy-note').value, state.destroyPhoto); return; }
   };
   app.onchange = (e) => {
@@ -1509,6 +1663,14 @@ function attachHandlers(){
       document.getElementById('f-type-locked').style.display = isCustom ? 'none' : '';
       document.getElementById('f-type-custom').style.display = isCustom ? 'flex' : 'none';
       if(!isCustom){ const t = state.couponTypes.find(t=>t.name===el.value); document.getElementById('f-type-locked').querySelector('.locked-total').textContent = t ? t.count+' ใบ' : '-'; }
+      return;
+    }
+    if(el.id==='f-edit-tasktype'){
+      const isCustom = el.value==='__custom__';
+      state.editPlanTypeCustom = isCustom;
+      document.getElementById('f-edit-type-locked').style.display = isCustom ? 'none' : '';
+      document.getElementById('f-edit-type-custom').style.display = isCustom ? 'flex' : 'none';
+      if(!isCustom){ const t = state.couponTypes.find(t=>t.name===el.value); document.getElementById('f-edit-type-locked').querySelector('.locked-total').textContent = t ? t.count+' ใบ' : '-'; }
       return;
     }
     if(el.id==='f-block-select' && el.value){ const [f,t]=el.value.split('|'); document.getElementById('f-from').value=f; document.getElementById('f-to').value=t; return; }
@@ -1524,6 +1686,19 @@ function attachHandlers(){
     if(el.dataset.act==='filterDate'){ state.historyFilterDate = el.value; render(); }
     if(el.dataset.act==='homeSearch'){ state.homeFilter.search = el.value; render(); refocus('input[data-act="homeSearch"]'); }
     if(el.dataset.act==='filterEmployeeList'){ state.employeeListFilter = el.value; render(); refocus('input[data-act="filterEmployeeList"]'); }
+    // Fires on every keystroke AND on picking a <datalist> suggestion (both are 'input'
+    // events). No render() here — this modal's other fields (dates, province, ...) live only
+    // in the DOM until submit, and a full re-render would wipe whatever the user already
+    // typed into them; a matched branch just gets its code written directly into the sibling
+    // input instead.
+    if(el.dataset.act==='branchName' || el.dataset.act==='branchNameEdit'){
+      const match = branchesList().find(b=>b.name===el.value);
+      if(match){
+        const codeInput = document.getElementById(el.dataset.act==='branchName' ? 'f-branchcode' : 'f-edit-branchcode');
+        if(codeInput && match.code) codeInput.value = match.code;
+      }
+      return;
+    }
   };
   app.onkeydown = (e) => { if(e.key==='Escape'){ if(state.viewPhotoUrl){ state.viewPhotoUrl=null; render(); } else if(state.modal){ closeModal(); } } };
   const typeSel = app.querySelector('select[data-act="homeType"]'); if(typeSel) typeSel.onchange = (e)=>{ state.homeFilter.type = e.target.value; render(); };
