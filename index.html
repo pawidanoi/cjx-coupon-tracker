@@ -6,6 +6,12 @@
 <title>สมุดเบิกคูปอง CJX</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Prompt:wght@500;600;700;800;900&family=Sarabun:wght@400;600&display=swap">
 <style>
   :root{
     /* CJX-inspired palette: sunny yellow/orange, brand red + blue, warm brown "sticker" outline */
@@ -24,8 +30,9 @@
     --act-destroy:var(--brand-red); --act-destroy-soft:var(--brand-red-soft);
     --shadow: 0 2px 0 rgba(59,42,24,.15); --radius: 12px; --radius-sm:7px;
     --mono: 'SFMono-Regular', Consolas, 'Courier New', monospace;
-    --display: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
-    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --display: 'Prompt', 'Leelawadee UI', 'Trebuchet MS', system-ui, sans-serif;
+    --sans: 'IBM Plex Sans Thai', 'Leelawadee UI', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --act-give:#0b7d42; --act-give-soft:#DDF2E5; --act-print:#2A1D10;
   }
   *{box-sizing:border-box;}
   html{ -webkit-text-size-adjust:100%; }
@@ -178,6 +185,37 @@
   .help-step h4{ margin:0 0 4px; font-family:var(--display); font-weight:800; font-size:15px; }
   .help-step p{ margin:0; font-size:13.5px; color:var(--ink-soft); line-height:1.6; }
 
+  /* ---- Coupon printing + distribution ---- */
+  ::selection{ background:var(--brand-blue); color:#fff; }
+  :focus-visible{ outline:3px solid var(--brand-blue); outline-offset:2px; }
+  .btn-print{ background:var(--act-print); border-color:var(--act-print); color:var(--brand-yellow); } .btn-print:hover{ background:#46321c; }
+  .btn-print:disabled{ background:var(--paper-dark); color:var(--ink-faint); border-color:var(--line); }
+  .voucher-panel{ display:grid; grid-template-columns:minmax(0,1fr); gap:14px; align-items:start; margin-bottom:14px; }
+  .voucher-panel .ticket-preview{ width:100%; height:auto; display:block; border-radius:8px; filter:drop-shadow(0 3px 6px rgba(59,42,24,.18)); }
+  .voucher-panel .ticket-empty{ aspect-ratio:105/59.4; border:2.5px dashed var(--dash); border-radius:10px; display:flex; align-items:center; justify-content:center; text-align:center; padding:12px; color:var(--ink-soft); font-size:12.5px; font-weight:600; background:var(--paper); }
+  .vp-body{ display:flex; flex-direction:column; gap:10px; min-width:0; }
+  .vp-title{ font-family:var(--display); font-weight:800; font-size:16px; margin:0; }
+  .vp-sub{ font-size:12.5px; color:var(--ink-soft); }
+  .vp-stats{ display:flex; flex-wrap:wrap; gap:6px 18px; }
+  .vp-stat{ display:flex; flex-direction:column; }
+  .vp-stat b{ font-family:var(--display); font-size:21px; font-weight:800; line-height:1.1; font-variant-numeric:tabular-nums; }
+  .vp-stat span{ font-size:11px; color:var(--ink-soft); font-weight:700; }
+  .vp-stat.give b{ color:var(--act-give); } .vp-stat.claim b{ color:var(--act-claim); }
+  .chip-give{ background:var(--act-give-soft); color:var(--act-give); }
+  .schema-warn{ background:var(--brand-yellow-soft); color:#7a4f00; border:2px solid var(--brand-yellow-deep); border-radius:var(--radius-sm); padding:9px 12px; font-size:12.5px; font-weight:600; }
+  .seg-row{ display:flex; gap:6px; flex-wrap:wrap; }
+  .seg-opt{ border:2px solid var(--line); background:var(--paper); border-radius:var(--radius-sm); padding:7px 12px; font-size:13px; font-weight:700; color:var(--ink-soft); text-align:left; }
+  .seg-opt small{ display:block; font-weight:600; font-size:11px; color:var(--ink-faint); }
+  .seg-opt[aria-pressed="true"]{ border-color:var(--ink); background:var(--brand-yellow-soft); color:var(--ink); }
+  .print-progress{ height:7px; background:var(--paper-dark); border-radius:6px; overflow:hidden; margin-top:8px; }
+  .print-progress i{ display:block; height:100%; width:0; background:var(--act-give); transition:width .2s ease; }
+  .print-status{ font-size:12.5px; font-weight:700; color:var(--ink-soft); margin-top:8px; min-height:1.2em; }
+  .check-list{ display:flex; flex-direction:column; gap:5px; font-size:13px; margin:10px 0; }
+  .check-list div{ display:flex; gap:8px; align-items:baseline; }
+  .check-list .y{ color:var(--act-give); font-weight:900; } .check-list .w{ color:var(--brand-yellow-deep); font-weight:900; } .check-list .n{ color:var(--brand-red); font-weight:900; }
+  .import-summary{ display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; background:var(--paper-dark); border-radius:var(--radius-sm); padding:10px 12px; font-size:12px; color:var(--ink-soft); }
+  .import-summary b{ display:block; font-size:15px; color:var(--ink); font-family:var(--display); }
+
   /* ---- Mobile bottom nav ---- */
   .mobile-nav{ display:none; }
 
@@ -217,6 +255,8 @@ let state = {
   typeEditRows:[], viewPhotoUrl:null,
   employeeSync:{status:'idle', lastSyncedAt:null, error:null, count:0},
   employeeListFilter:'',
+  schemaReady:true, voucherImport:null,
+  printOpts:{scope:'all', from:'', to:''},
 };
 
 const PALETTE = ['#F4D35E','#F2A6B0','#A7C7E7','#B7E4C7','#F6B26B','#C9B6E4','#E8C1A0','#9FD8D8','#D8B4E2','#C8D96F'];
@@ -236,11 +276,13 @@ function txRangeLabel(t){ if(t.ranges && t.ranges.length){ return t.ranges.map(r
 function planStatus(plan){
   if(!plan.startDate) return 'unknown';
   const today = new Date(); today.setHours(0,0,0,0);
-  const start = new Date(plan.startDate); const end = plan.endDate ? new Date(plan.endDate) : start;
+  // 'YYYY-MM-DD' parses as UTC midnight (07:00 in Thailand); read it as a local date instead
+  const start = localDate(plan.startDate); const end = plan.endDate ? localDate(plan.endDate) : start;
   if(today < start) return 'upcoming'; if(today > end) return 'done'; return 'active';
 }
 const STATUS_LABEL = {upcoming:'ยังไม่เริ่ม', active:'กำลังดำเนินการ', done:'จบแล้ว', unknown:''};
-function canDestroyToday(plan){ if(!plan.endDate) return true; const today=new Date(); today.setHours(0,0,0,0); const end=new Date(plan.endDate); return today >= end; }
+function localDate(iso){ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1], +m[2]-1, +m[3]) : new Date(iso); }
+function canDestroyToday(plan){ if(!plan.endDate) return true; const today=new Date(); today.setHours(0,0,0,0); return today >= localDate(plan.endDate); }
 
 /* ============ Employee helpers ============ */
 // Team names can come from two places that don't always agree: the employee roster's
@@ -305,7 +347,9 @@ function mapPlanRow(p, counts){
     id: p.id, name: p.name, branchCode: p.branch_code, province: p.province, taskType: p.task_type,
     totalCoupons: p.total_coupons, team: p.team, needsBurmese: p.needs_burmese,
     startDate: p.start_date, endDate: p.end_date, createdAt: new Date(p.created_at).getTime(),
-    archived: p.archived, assignedCount: c.assigned, destroyedCount: c.destroyed,
+    archived: p.archived, assignedCount: c.assigned, destroyedCount: c.destroyed, voucherCount: c.vouchers||0,
+    couponValue: p.coupon_value||20, validFrom: p.valid_from||null, validTo: p.valid_to||null,
+    voucherFile: p.voucher_file||null, voucherUploadedAt: p.voucher_uploaded_at||null,
   };
 }
 function mapTxRow(t){
@@ -331,7 +375,7 @@ async function loadAllData(){
   try{
     const [{data: plans, error: e1}, {data: coupons, error: e2}, {data: employees, error: e3}, {data: types, error: e4}] = await Promise.all([
       sb.from('plans').select('*'),
-      sb.from('coupons').select('plan_id, owner, destroyed'),
+      fetchAllCoupons(),
       sb.from('employees').select('*'),
       sb.from('coupon_types').select('*'),
     ]);
@@ -340,6 +384,7 @@ async function loadAllData(){
     (coupons||[]).forEach(c=>{
       if(!counts[c.plan_id]) counts[c.plan_id] = {assigned:0, destroyed:0};
       if(c.destroyed) counts[c.plan_id].destroyed++; else if(c.owner) counts[c.plan_id].assigned++;
+      if(c.voucher) counts[c.plan_id].vouchers=(counts[c.plan_id].vouchers||0)+1;
     });
     state.plans = (plans||[]).map(p=>mapPlanRow(p, counts));
     state.employees = (employees||[]).map(e=>({team:e.team, area:e.area, code:e.code, name:e.name, nickname:e.nickname, gender:e.gender, address:e.address, coordinates:e.coordinates, phone:e.phone}));
@@ -347,6 +392,24 @@ async function loadAllData(){
   } catch(err){
     console.error(err); showToast('เชื่อมต่อฐานข้อมูลไม่สำเร็จ ลองรีเฟรชหน้าใหม่');
   }
+}
+
+// The coupons table holds one row per coupon slot across every plan — far beyond the
+// 1000-row cap Supabase applies to a single request — so read it in parallel pages.
+// Falls back to the original columns when the voucher migration hasn't been run yet.
+async function fetchAllCoupons(){
+  const cols = state.schemaReady ? 'plan_id, owner, destroyed, voucher' : 'plan_id, owner, destroyed';
+  const head = await sb.from('coupons').select('plan_id', {count:'exact', head:true});
+  if(head.error) return {data:null, error:head.error};
+  const total = head.count||0, size=1000, pages=[];
+  for(let from=0; from<Math.max(total,1); from+=size) pages.push(sb.from('coupons').select(cols).order('plan_id').order('no').range(from, from+size-1));
+  const res = await Promise.all(pages);
+  const bad = res.find(r=>r.error);
+  if(bad){
+    if(state.schemaReady && /voucher/.test(bad.error.message||'')){ state.schemaReady=false; return fetchAllCoupons(); }
+    return {data:null, error:bad.error};
+  }
+  return {data: res.flatMap(r=>r.data||[]), error:null};
 }
 
 /* ============ Navigation ============ */
@@ -360,13 +423,15 @@ async function openPlan(id){
 async function refreshCurrentPlan(){
   const plan = currentPlan(); if(!plan) return;
   const [{data: coupons, error: e1}, {data: txs, error: e2}] = await Promise.all([
-    sb.from('coupons').select('no, owner, destroyed').eq('plan_id', plan.id).order('no'),
+    sb.from('coupons').select(state.schemaReady ? 'no, owner, destroyed, voucher' : 'no, owner, destroyed').eq('plan_id', plan.id).order('no').range(0, 9999),
     sb.from('transactions').select('*').eq('plan_id', plan.id).order('ts', {ascending:false}),
   ]);
+  if(e1 && state.schemaReady && /voucher/.test(e1.message||'')){ state.schemaReady=false; return refreshCurrentPlan(); }
   if(e1||e2){ console.error(e1,e2); showToast('โหลดข้อมูลแผนงานไม่สำเร็จ'); return; }
   state.planData = { coupons: coupons||[], transactions: (txs||[]).map(mapTxRow) };
   plan.assignedCount = state.planData.coupons.filter(c=>c.owner).length;
   plan.destroyedCount = state.planData.coupons.filter(c=>c.destroyed).length;
+  plan.voucherCount = state.planData.coupons.filter(c=>c.voucher).length;
 }
 function goHome(){ state.view='home'; state.currentPlanId=null; state.planData=null; render(); }
 function goHelp(){ state.view='help'; render(); }
@@ -654,6 +719,328 @@ async function destroyAllRemaining(destroyedBy, note, photo){
   render();
 }
 
+/* ============ Coupon printing: nest vouchers → ticket-style PDF ============ */
+const COUPON_SQL_HINT = 'เปิด Supabase > SQL Editor แล้วรันไฟล์ supabase-migration.sql ก่อน';
+const TH_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+const COND_FULL = ['คูปองนี้ใช้ได้เฉพาะสำหรับซื้อสินค้าที่ร่วมรายการเท่านั้น','กรุณาแสดงคูปองฉบับจริงต่อพนักงานก่อนชำระเงินทุกครั้ง','คูปอง 1 ใบ ใช้ได้เพียง 1 ครั้ง และใช้ได้เฉพาะสาขาที่ระบุไว้บนคูปองเท่านั้น','คูปองใช้ได้เฉพาะภายในระยะเวลาที่ระบุไว้บนคูปอง และไม่สามารถใช้ได้หลังวันหมดอายุไม่ว่ากรณีใด','ไม่สามารถใช้คูปองร่วมกับส่วนลดหรือโปรโมชั่นอื่นได้ เว้นแต่จะระบุไว้เป็นอย่างอื่น','คูปองไม่สามารถแลกเปลี่ยน โอนสิทธิ์ หรือทอนเป็นเงินสดได้','กรณีมูลค่าสินค้าสูงกว่ามูลค่าคูปอง ผู้ใช้สามารถชำระเงินส่วนต่างเพิ่มเติมได้','กรณีมูลค่าสินค้าต่ำกว่ามูลค่าคูปอง จะไม่มีการคืนเงินส่วนต่างไม่ว่ากรณีใด','คูปองที่สูญหาย ชำรุด หมดอายุ หรือถูกใช้ไปแล้ว จะไม่สามารถขอออกใหม่หรือขอทดแทนได้','บริษัทขอสงวนสิทธิ์ในการเปลี่ยนแปลงเงื่อนไขการใช้คูปองโดยไม่ต้องแจ้งให้ทราบล่วงหน้า ตามความเหมาะสม'];
+const COND_SHORT = ['ใช้ได้เฉพาะสาขาและวันที่ระบุ 1 ใบ ใช้ได้ 1 ครั้ง','แสดงคูปองฉบับจริงก่อนชำระเงิน ไม่ทอนเป็นเงินสด','ใช้ร่วมกับโปรโมชั่นอื่นไม่ได้ เว้นแต่ระบุไว้','บริษัทขอสงวนสิทธิ์เปลี่ยนแปลงเงื่อนไขโดยไม่แจ้งล่วงหน้า'];
+const CP_PAGE = {w:210, h:297};
+const CP_LAYOUTS = {'L10':{cols:1, rows:10, label:'ใบยาว 10 ใบ/หน้า', long:true, strip:true}};
+const CP_THEMES = {
+  teal:{main:'#127a72', tint:'#eaf5f3', name:'เขียว'},
+  red:{main:'#c8352b', tint:'#fcecea', name:'แดง'},
+  orange:{main:'#e0711c', tint:'#fdf0e4', name:'ส้ม'},
+  blue:{main:'#2457b5', tint:'#e9effb', name:'น้ำเงิน'},
+};
+const CP_INK='#1d1d1b', CP_PAPER='#ffffff', CP_GOLD='#f6b52e', CP_MUTED='#5a5a55', CP_MOD=0.33;
+const isNewBranchType = t => /เปิด/.test(t||'') && !/แฟร์/.test(t||'');
+const defaultTheme = plan => isNewBranchType(plan.taskType) ? 'red' : 'teal';
+
+function cpDate(iso){ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1], +m[2]-1, +m[3]) : null; }
+function thRange(a, b){
+  if(!a) return '';
+  const ya=a.getFullYear()+543;
+  if(!b || a.getTime()===b.getTime()) return `${a.getDate()} ${TH_MONTHS[a.getMonth()]} ${ya}`;
+  const yb=b.getFullYear()+543;
+  if(a.getMonth()===b.getMonth() && ya===yb) return `${a.getDate()}–${b.getDate()} ${TH_MONTHS[a.getMonth()]} ${ya}`;
+  return `${a.getDate()} ${TH_MONTHS[a.getMonth()]}${ya!==yb?' '+ya:''} – ${b.getDate()} ${TH_MONTHS[b.getMonth()]} ${yb}`;
+}
+function cpGeo(layout){ const L=CP_LAYOUTS[layout]||CP_LAYOUTS['L10']; return {cols:L.cols, rows:L.rows, cw:CP_PAGE.w/L.cols, ch:CP_PAGE.h/L.rows}; }
+function cpSegWords(text){ try{ return [...new Intl.Segmenter('th',{granularity:'word'}).segment(text)].map(s=>s.segment); }catch(e){ return [...text]; } }
+function cpWrap(x, text, maxW){
+  const lines=[]; let line='';
+  for(const w of cpSegWords(text)){ const t=line+w; if(x.measureText(t).width>maxW && line){ lines.push(line.trimEnd()); line=w.trimStart(); } else line=t; }
+  if(line) lines.push(line); return lines;
+}
+function cpFit(x, text, weight, family, maxW, maxSize, minSize){
+  let s=maxSize; x.font=`${weight} ${s}px ${family}`;
+  while(x.measureText(text).width>maxW && s>minSize){ s-=0.1; x.font=`${weight} ${s}px ${family}`; }
+  return s;
+}
+function cpRound(x,X,Y,w,h,r){ x.beginPath(); x.moveTo(X+r,Y); x.arcTo(X+w,Y,X+w,Y+h,r); x.arcTo(X+w,Y+h,X,Y+h,r); x.arcTo(X,Y+h,X,Y,r); x.arcTo(X,Y,X+w,Y,r); x.closePath(); }
+async function cpFontsReady(){
+  try{ await Promise.all(['800 40px Prompt','700 40px Prompt','600 40px Prompt','500 40px Prompt','400 20px Sarabun'].map(f=>document.fonts.load(f,'คูปองเงินสด 0123'))); }catch(e){}
+}
+function cpSparkle(x, cx, cy, r){
+  x.beginPath();
+  for(let i=0;i<8;i++){ const a=i*Math.PI/4, rr=i%2?r*0.32:r; x.lineTo(cx+Math.sin(a)*rr, cy-Math.cos(a)*rr); }
+  x.closePath(); x.fillStyle=CP_GOLD; x.fill(); x.lineWidth=r*0.16; x.strokeStyle=CP_INK; x.stroke();
+}
+// Shopping-bag mascot (the giveaway bag), drawn in a box of height s centred at (cx, cy)
+function cpMascot(x, cx, cy, s, th){
+  const u=s/100, ol=3.2; x.save(); x.translate(cx,cy); x.scale(u,u); x.lineJoin='round'; x.lineCap='round';
+  x.strokeStyle=CP_INK; x.lineWidth=ol*1.4;
+  x.beginPath(); x.moveTo(-10,30); x.quadraticCurveTo(-14,40,-22,45); x.stroke();
+  x.beginPath(); x.moveTo(10,30); x.quadraticCurveTo(14,40,18,46); x.stroke();
+  x.fillStyle=th.main; x.lineWidth=ol;
+  x.beginPath(); x.ellipse(-27,46,8,4.6,-0.25,0,Math.PI*2); x.fill(); x.stroke();
+  x.beginPath(); x.ellipse(23,47.5,8,4.6,0.15,0,Math.PI*2); x.fill(); x.stroke();
+  x.lineWidth=ol*1.4; x.beginPath(); x.moveTo(-30,4); x.quadraticCurveTo(-44,-2,-44,-16); x.stroke();
+  x.beginPath(); x.moveTo(30,6); x.quadraticCurveTo(42,14,47,4); x.stroke();
+  x.fillStyle=CP_PAPER; x.lineWidth=ol;
+  x.beginPath(); x.arc(-44,-19,6,0,Math.PI*2); x.fill(); x.stroke();
+  x.beginPath(); x.arc(49,2,6,0,Math.PI*2); x.fill(); x.stroke();
+  x.lineWidth=ol*2.2; x.beginPath(); x.arc(0,-32,14,Math.PI*1.08,Math.PI*1.92); x.stroke();
+  x.lineWidth=ol*1.1; x.strokeStyle=CP_GOLD; x.beginPath(); x.arc(0,-32,14,Math.PI*1.1,Math.PI*1.9); x.stroke();
+  x.beginPath(); x.moveTo(-28,-34); x.lineTo(28,-34); x.lineTo(33,32); x.quadraticCurveTo(0,37,-33,32); x.closePath();
+  x.fillStyle=CP_GOLD; x.fill(); x.lineWidth=ol; x.strokeStyle=CP_INK; x.stroke();
+  x.beginPath(); x.moveTo(-28,-34); x.lineTo(28,-34); x.lineTo(28.7,-25); x.lineTo(-28.7,-25); x.closePath(); x.fillStyle=th.main; x.fill(); x.stroke();
+  x.fillStyle=CP_INK;
+  x.beginPath(); x.ellipse(-10,-6,4.2,6,0,0,Math.PI*2); x.fill();
+  x.beginPath(); x.ellipse(10,-6,4.2,6,0,0,Math.PI*2); x.fill();
+  x.fillStyle=CP_PAPER; x.beginPath(); x.arc(-8.6,-8.4,1.6,0,Math.PI*2); x.fill(); x.beginPath(); x.arc(11.4,-8.4,1.6,0,Math.PI*2); x.fill();
+  x.fillStyle='rgba(232,90,79,.55)'; x.beginPath(); x.ellipse(-19,4,4.5,2.6,0,0,Math.PI*2); x.fill(); x.beginPath(); x.ellipse(19,4,4.5,2.6,0,0,Math.PI*2); x.fill();
+  x.beginPath(); x.moveTo(-9,5); x.quadraticCurveTo(0,17,9,5); x.closePath(); x.fillStyle=CP_INK; x.fill();
+  x.beginPath(); x.moveTo(-4,10.5); x.quadraticCurveTo(0,13.5,4,10.5); x.quadraticCurveTo(0,9,-4,10.5); x.fillStyle='#e8665a'; x.fill();
+  x.fillStyle=CP_PAPER; cpRound(x,-11,17,22,9,2); x.fill(); x.lineWidth=ol*0.6; x.stroke();
+  x.fillStyle=th.main; x.font='800 7px Prompt'; x.textAlign='center'; x.textBaseline='middle'; x.fillText('CJX',0,21.8);
+  x.restore();
+}
+// Ticket frame; mirrored puts the stub on the left (back side of a duplex sheet)
+function cpFrame(x, W, H, th, mirrored, opt){
+  const o=opt||{}, pad=o.pad||1.8, f=o.f||2.0, gap=1.4, stubW=o.stubW||Math.min(H*0.44, W*0.3), nr=o.notch||2.3;
+  x.fillStyle=CP_PAPER; x.fillRect(0,0,W,H);
+  x.fillStyle=th.main; cpRound(x,pad,pad,W-pad*2,H-pad*2,3); x.fill();
+  const inH=H-pad*2-f*2, top=pad+f;
+  const stubX = mirrored ? pad+f : W-pad-f-stubW;
+  const mainX = mirrored ? stubX+stubW+gap : pad+f;
+  const mainW = W-pad*2-f*2-stubW-gap;
+  const divX = mirrored ? stubX+stubW+gap/2 : mainX+mainW+gap/2;
+  x.fillStyle=CP_PAPER; cpRound(x,mainX,top,mainW,inH,2); x.fill(); cpRound(x,stubX,top,stubW,inH,2); x.fill();
+  for(const [cx,cy,r] of [[divX,pad,nr],[divX,H-pad,nr],[pad,H/2,nr*0.74],[W-pad,H/2,nr*0.74]]){ x.beginPath(); x.arc(cx,cy,r,0,Math.PI*2); x.fill(); }
+  x.strokeStyle=th.main; x.lineWidth=0.22; x.setLineDash([0.9,0.7]);
+  cpRound(x,mainX+1.1,top+1.1,mainW-2.2,inH-2.2,1.4); x.stroke();
+  cpRound(x,stubX+1.1,top+1.1,stubW-2.2,inH-2.2,1.4); x.stroke();
+  x.setLineDash([]);
+  return {pad,f,top,inH,stubX,stubW,mainX,mainW};
+}
+// Long strip (10 per A4): value block | full conditions in two columns | horizontal barcode stub. Single-sided.
+function cpFront(c, S){
+  const g=cpGeo(c.layout), W=g.cw, H=g.ch, th=CP_THEMES[c.theme]||CP_THEMES.teal;
+  const cv=document.createElement('canvas'); cv.width=Math.round(W*S); cv.height=Math.round(H*S);
+  const x=cv.getContext('2d'); x.scale(S,S);
+  const fr=cpFrame(x,W,H,th,false,{pad:0.9,f:1.1,stubW:44.5,notch:1.6}), ph=fr.inH;
+  const uh=ph-3.2, u0=fr.top+1.6, R=(f)=>u0+uh*f;          // usable band inside the dashed inner border
+  x.textAlign='left'; x.textBaseline='alphabetic';
+  // mascot
+  const ms=uh*0.86, mcx=fr.mainX+1.5+ms*0.5, mcy=u0+uh*0.52;
+  cpMascot(x,mcx,mcy,ms,th); cpSparkle(x,mcx-ms*0.42,R(0.14),uh*0.07); cpSparkle(x,mcx+ms*0.46,R(0.9),uh*0.05);
+  // value column: branch · heading · value · validity
+  const c1x=mcx+ms*0.56, c1w=29;
+  const brand='สาขา '+c.name; x.fillStyle=CP_INK; cpFit(x,brand,'700','Prompt',c1w,uh*0.15,1.5); x.fillText(brand,c1x,R(0.15));
+  x.strokeStyle=th.main; x.lineWidth=0.25; x.beginPath(); x.moveTo(c1x,R(0.215)); x.lineTo(c1x+c1w,R(0.215)); x.stroke();
+  x.fillStyle=CP_INK; cpFit(x,'คูปองเงินสด','800','Prompt',c1w,uh*0.16,2); x.fillText('คูปองเงินสด',c1x,R(0.4));
+  let vs=uh*0.5; const vtxt=String(c.value), gap=uh*0.04;
+  const vm=()=>{ x.font='800 '+vs+'px Prompt'; const a=x.measureText(vtxt).width; x.font='800 '+(vs*0.4)+'px Prompt'; return a+gap+x.measureText('บาท').width; };
+  while(vm()>c1w && vs>6) vs*=0.97;
+  x.fillStyle=th.main; x.font='800 '+vs+'px Prompt'; x.fillText(vtxt,c1x-0.3,R(0.79));
+  const vw=x.measureText(vtxt).width; x.font='800 '+(vs*0.4)+'px Prompt'; x.fillText('บาท',c1x-0.3+vw+gap,R(0.79));
+  const when='ใช้ได้ '+thRange(c.from,c.to); x.fillStyle=CP_INK; cpFit(x,when,'600','Prompt',c1w,uh*0.105,1.4); x.fillText(when,c1x,R(0.97));
+  // divider
+  const dvx=c1x+c1w+1.8;
+  x.save(); x.strokeStyle=th.main; x.lineWidth=0.22; x.setLineDash([0.9,0.7]); x.beginPath(); x.moveTo(dvx, u0+0.6); x.lineTo(dvx, u0+uh-0.6); x.stroke(); x.restore();
+  // conditions: vertical title band + the full ten items in two balanced columns
+  const cx0=dvx+3, cx1=fr.mainX+fr.mainW-2.2;
+  x.save(); x.translate(cx0+1.5, u0+uh/2); x.rotate(-Math.PI/2); x.textAlign='center'; x.textBaseline='middle'; x.fillStyle=th.main;
+  cpFit(x,'เงื่อนไขการใช้คูปอง','700','Prompt',uh-1,2.5,1.4); x.fillText('เงื่อนไขการใช้คูปอง',0,0); x.restore();
+  x.strokeStyle=th.main; x.lineWidth=0.25; x.beginPath(); x.moveTo(cx0+3.4,u0+0.4); x.lineTo(cx0+3.4,u0+uh-0.4); x.stroke();
+  x.textAlign='left'; x.textBaseline='alphabetic';
+  const lx0=cx0+4.8, cw=cx1-lx0, colGap=3, colW=(cw-colGap)/2, y0=u0+0.1, avail=uh-0.2;
+  const build=(list,cs)=>{ x.font='400 '+cs+'px Sarabun'; const out=[]; for(const t of list) cpWrap(x,t,colW-1.7).forEach((l,i)=>out.push({t:l,first:i===0})); return out; };
+  // split at an item boundary so a bullet never straddles the two columns
+  const layoutCols=(cs)=>{ const per=COND_FULL.map(t=>build([t],cs).length); const total=per.reduce((a,b)=>a+b,0); let best=null;
+    for(let k=1;k<COND_FULL.length;k++){ const l=per.slice(0,k).reduce((a,b)=>a+b,0), r=total-l, m=Math.max(l,r); if(!best||m<best.m) best={k,m}; }
+    return best; };
+  let cs=2.3, best=layoutCols(cs); while(best.m*cs*1.28>avail && cs>1.3){ cs-=0.03; best=layoutCols(cs); }
+  x.fillStyle=CP_INK; x.font='400 '+cs+'px Sarabun';
+  const drawCol=(items,cx)=>{ let row=0; for(const t of items){ build([t],cs).forEach((l,i)=>{ const ly=y0+(row+1)*cs*1.28-cs*0.28; if(l.first){ x.fillStyle=th.main; x.fillText('•',cx,ly); x.fillStyle=CP_INK; } x.fillText(l.t,cx+1.7,ly); row++; }); } };
+  drawCol(COND_FULL.slice(0,best.k), lx0); drawCol(COND_FULL.slice(best.k), lx0+colW+colGap);
+  // stub: label, horizontal barcode, digits
+  const sx=fr.stubX, sw=fr.stubW, mid=sx+sw/2;
+  x.textAlign='center'; x.textBaseline='alphabetic'; x.fillStyle=th.main; cpFit(x,`คูปองเงินสด CJX · ${c.value} บาท`,'700','Prompt',sw-5,uh*0.15,1.4); x.fillText(`คูปองเงินสด CJX · ${c.value} บาท`,mid,R(0.17));
+  const note='เฉพาะสมาชิกใหม่ · ใช้ได้เฉพาะสาขานี้'; x.textAlign='left'; x.fillStyle=CP_MUTED; cpFit(x,note,'500','Prompt',sw-5-11,1.7,1.1); x.fillText(note,sx+2.6,u0+uh-0.2);
+  const by=R(0.3), bh=uh*0.42;
+  const st={horizontal:true, by, bh, digitsY:by+bh+3.1};
+  return {canvas:cv, W, H, fr, st, cs, no:{x:sx+sw-2.6, y:u0+uh-0.2}};
+}
+function cpBars(value){
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  JsBarcode(svg, value, {format: /^\d+$/.test(value) && value.length%2===0 ? 'CODE128C' : 'CODE128', width:1, height:10, margin:0, displayValue:false});
+  const out=[]; svg.querySelectorAll('g rect').forEach(r=>out.push([+r.getAttribute('x'), +r.getAttribute('width')]));
+  return {bars:out, modules:parseFloat(svg.getAttribute('width'))};
+}
+function cpStubBarcode(t, value){
+  const b=cpBars(value), len=b.modules*CP_MOD, x0=t.fr.stubX+(t.fr.stubW-len)/2;
+  return {rects:b.bars.map(([bx,bw])=>[x0+bx*CP_MOD, t.st.by, bw*CP_MOD, t.st.bh]), len, x0};
+}
+let cpReader=null;
+// Independent check: decode the exact bar pattern we are about to print
+function cpDecode(value){
+  const {bars, modules}=cpBars(value);
+  const px=3, quiet=60, h=60, w=modules*px+quiet*2;
+  const lum=new Uint8ClampedArray(w*h).fill(255);
+  for(const [x0,bw] of bars){ for(let xx=quiet+x0*px; xx<quiet+(x0+bw)*px; xx++){ for(let y=0;y<h;y++) lum[y*w+xx]=0; } }
+  if(!cpReader){
+    cpReader=new ZXing.MultiFormatReader();
+    const hints=new Map(); hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.CODE_128]); hints.set(ZXing.DecodeHintType.TRY_HARDER,true);
+    cpReader.setHints(hints);
+  }
+  try{ return cpReader.decodeWithState(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.RGBLuminanceSource(lum,w,h)))).getText(); }catch(e){ return null; }
+}
+const cpSpaced = v => v.replace(/(\d{4})(?=\d)/g,'$1 ');
+function cpBuildPdf(c, items){
+  const t=cpFront(c,14), g=cpGeo('L10');
+  const img=t.canvas.toDataURL('image/png');
+  const doc=new window.jspdf.jsPDF({unit:'mm', format:'a4', orientation:'portrait', compress:true});
+  const per=g.rows;
+  for(let p=0;p*per<items.length;p++){
+    const chunk=items.slice(p*per,(p+1)*per);
+    if(p>0) doc.addPage();
+    chunk.forEach((it,k)=>{
+      const oy=k*g.ch;
+      doc.addImage(img,'PNG',0,oy,g.cw,g.ch,'front','FAST');
+      const bc=cpStubBarcode(t,it.v); doc.setFillColor(0,0,0);
+      for(const [rx,ry,rw,rh] of bc.rects) doc.rect(rx,oy+ry,rw,rh,'F');
+      doc.setFont('courier','bold'); doc.setFontSize(7.4); doc.setTextColor(29,29,27);
+      doc.text(cpSpaced(it.v), bc.x0+bc.len/2, oy+t.st.digitsY, {align:'center'});
+      doc.setFont('helvetica','normal'); doc.setFontSize(5.4); doc.setTextColor(90,90,85);
+      doc.text(`No.${String(it.no).padStart(4,'0')}`, t.no.x, oy+t.no.y, {align:'right'});
+    });
+    doc.setDrawColor(170,178,175); doc.setLineWidth(0.12); doc.setLineDashPattern([1.5,1.5],0);
+    for(let r=1;r<g.rows;r++) doc.line(0,r*g.ch,CP_PAGE.w,r*g.ch);
+    doc.setLineDashPattern([],0);
+  }
+  return doc;
+}
+function couponSpec(plan){
+  return {name: plan.name, value: plan.couponValue||20, from: cpDate(plan.validFrom||plan.startDate), to: cpDate(plan.validTo||plan.endDate),
+    theme: defaultTheme(plan), layout: 'L10'};
+}
+
+/* ---- nest voucher file → plan ---- */
+function cpCellText(cell){
+  if(!cell) return '';
+  if(cell.t==='n') return Number.isInteger(cell.v) ? BigInt(Math.round(cell.v)).toString() : String(cell.v);
+  return String(cell.w ?? cell.v ?? '').trim();
+}
+function cpParseDmy(s){
+  const m=String(s||'').trim().match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  if(!m) return null; let y=+m[3]; if(y>2400) y-=543;
+  return `${y}-${String(+m[2]).padStart(2,'0')}-${String(+m[1]).padStart(2,'0')}`;
+}
+async function handleVoucherFile(file){
+  const plan=currentPlan();
+  state.voucherImport={fileName:file.name, status:'reading'}; state.modalError=''; render();
+  try{
+    const wb=XLSX.read(await file.arrayBuffer(), {type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]]; const ref=XLSX.utils.decode_range(ws['!ref']);
+    const rows=[]; for(let r=ref.s.r;r<=ref.e.r;r++){ const row=[]; for(let col=ref.s.c;col<=ref.e.c;col++) row.push(cpCellText(ws[XLSX.utils.encode_cell({r,c:col})])); rows.push(row); }
+    const hi=rows.findIndex(r=>r.some(v=>/voucher\s*no/i.test(v)));
+    if(hi<0) throw new Error('ไม่พบคอลัมน์ Voucher No. ไฟล์นี้อาจไม่ใช่ไฟล์เลขคูปองจาก nest');
+    const H=rows[hi].map(h=>String(h).toLowerCase()); const col=re=>H.findIndex(h=>re.test(h));
+    const cStore=col(/store\s*code/), cRun=col(/running/), cV=col(/voucher\s*no/), cVal=col(/value/), cEf=col(/effective\s*date/), cXd=col(/expir\w*\s*date/);
+    const items=[]; const stores=new Set();
+    rows.slice(hi+1).forEach((r,i)=>{ const v=String(r[cV]||'').replace(/\s/g,''); if(!v) return; items.push({no: parseInt(r[cRun],10) || (items.length+1), v}); if(cStore>=0 && r[cStore]) stores.add(String(r[cStore]).trim().toUpperCase()); });
+    if(!items.length) throw new Error('ไม่พบเลขคูปองในไฟล์');
+    const first=rows[hi+1]||[];
+    const imp={fileName:file.name, status:'ready', items, stores:[...stores], value:Number(first[cVal])||20, validFrom:cpParseDmy(first[cEf]), validTo:cpParseDmy(first[cXd]), checks:[]};
+    const nums=items.map(i=>i.v), dup=nums.length-new Set(nums).size, bad=nums.filter(v=>!/^\d{16}$/.test(v)).length;
+    const noDup=items.length-new Set(items.map(i=>i.no)).size;
+    imp.checks.push(dup ? {s:'n',t:`เลขคูปองซ้ำกันในไฟล์ ${dup} เลข`} : {s:'y',t:`เลขคูปองไม่ซ้ำกัน ${nums.length} เลข`});
+    imp.checks.push(bad ? {s:'n',t:`มีเลขที่ไม่ใช่ตัวเลข 16 หลัก ${bad} เลข`} : {s:'y',t:'เลขคูปองเป็นตัวเลข 16 หลักครบทุกใบ'});
+    if(noDup) imp.checks.push({s:'n',t:`Running No. ซ้ำกัน ${noDup} แถว`});
+    const code=(plan.branchCode||'').trim().toUpperCase();
+    if(imp.stores.length>1) imp.checks.push({s:'n',t:`ไฟล์มีหลายสาขา: ${imp.stores.join(', ')}`});
+    else if(code && imp.stores[0] && imp.stores[0]!==code) imp.checks.push({s:'n',t:`รหัสสาขาในไฟล์ ${imp.stores[0]} ไม่ตรงกับแผนงานนี้ (${code})`});
+    else if(imp.stores[0]) imp.checks.push({s:'y',t:`รหัสสาขาตรงกัน (${imp.stores[0]})`});
+    const maxNo=Math.max(...items.map(i=>i.no));
+    if(maxNo>plan.totalCoupons) imp.checks.push({s:'w',t:`ไฟล์มีถึงเบอร์ ${maxNo} แต่แผนงานมี ${plan.totalCoupons} ช่อง ระบบจะขยายให้อัตโนมัติ`});
+    else if(items.length<plan.totalCoupons) imp.checks.push({s:'w',t:`ไฟล์มี ${items.length} ใบ น้อยกว่าแผนงาน (${plan.totalCoupons} ช่อง) เบอร์ที่ไม่มีเลขจะพิมพ์ไม่ได้`});
+    else imp.checks.push({s:'y',t:`จำนวนตรงกับแผนงาน (${items.length} ใบ)`});
+    if(imp.validFrom && plan.startDate && imp.validFrom!==plan.startDate) imp.checks.push({s:'w',t:`วันเริ่มใช้คูปอง (${fmtDateShort(imp.validFrom)}) ไม่ตรงวันเริ่มงาน (${fmtDateShort(plan.startDate)})`});
+    // Same voucher already sitting in another plan?
+    const clash=new Map();
+    for(let i=0;i<nums.length;i+=150){
+      const {data, error}=await sb.from('coupons').select('plan_id,voucher').in('voucher', nums.slice(i,i+150));
+      if(error){ if(/voucher/.test(error.message||'')){ state.schemaReady=false; throw new Error('ฐานข้อมูลยังไม่มีคอลัมน์เลขคูปอง — '+COUPON_SQL_HINT); } throw error; }
+      (data||[]).filter(d=>d.plan_id!==plan.id).forEach(d=>clash.set(d.plan_id,(clash.get(d.plan_id)||0)+1));
+    }
+    if(clash.size) imp.checks.push({s:'n',t:'เลขคูปองซ้ำกับแผนงานอื่น: '+[...clash].map(([id,n])=>`${(state.plans.find(p=>p.id===id)||{}).name||id} (${n} เลข)`).join(', ')});
+    state.voucherImport=imp;
+  }catch(err){ console.error(err); state.voucherImport=null; state.modalError=err.message||String(err); }
+  render();
+}
+async function confirmVoucherImport(){
+  const plan=currentPlan(), imp=state.voucherImport;
+  if(!imp || imp.status!=='ready') return;
+  if(imp.checks.some(c=>c.s==='n')){ state.modalError='แก้รายการสีแดงก่อน หรือเลือกไฟล์ที่ถูกต้อง'; render(); return; }
+  imp.status='saving'; render();
+  try{
+    const maxNo=Math.max(...imp.items.map(i=>i.no));
+    if(maxNo>plan.totalCoupons){
+      const oldTotal=plan.totalCoupons;
+      const add=Array.from({length:maxNo-oldTotal},(_,i)=>({plan_id:plan.id, no:oldTotal+1+i, owner:null, destroyed:false}));
+      const {error:e0}=await sb.from('coupons').insert(add); if(e0) throw e0;
+      await sb.from('plans').update({total_coupons:maxNo}).eq('id',plan.id);
+      await sb.from('transactions').insert({plan_id:plan.id, action_type:'ขยาย', range_from:oldTotal+1, range_to:maxNo, previous_owner:null, new_owner:null, note:'ขยายตามไฟล์เลขคูปองจาก nest'});
+      plan.totalCoupons=maxNo;
+    }
+    // clear old numbers first so a re-upload never leaves stale vouchers behind
+    const {error:e1}=await sb.from('coupons').update({voucher:null}).eq('plan_id',plan.id); if(e1) throw e1;
+    for(let i=0;i<imp.items.length;i+=500){
+      const chunk=imp.items.slice(i,i+500).map(it=>({plan_id:plan.id, no:it.no, voucher:it.v}));
+      const {error}=await sb.from('coupons').upsert(chunk,{onConflict:'plan_id,no'}); if(error) throw error;
+    }
+    const patch={coupon_value:imp.value, valid_from:imp.validFrom, valid_to:imp.validTo, voucher_file:imp.fileName, voucher_uploaded_at:new Date().toISOString()};
+    const {error:e2}=await sb.from('plans').update(patch).eq('id',plan.id); if(e2) throw e2;
+    Object.assign(plan,{couponValue:imp.value, validFrom:imp.validFrom, validTo:imp.validTo, voucherFile:imp.fileName, voucherUploadedAt:patch.voucher_uploaded_at});
+    await sb.from('transactions').insert({plan_id:plan.id, action_type:'ใส่เลขคูปอง', range_from:Math.min(...imp.items.map(i=>i.no)), range_to:maxNo, count:imp.items.length, previous_owner:null, new_owner:null, note:imp.fileName});
+    state.voucherImport=null;
+    await refreshCurrentPlan(); closeModal();
+    showToast(`ใส่เลขคูปองจาก nest แล้ว ${imp.items.length} ใบ พร้อมให้ทีมพิมพ์`);
+  }catch(err){
+    console.error(err); imp.status='ready';
+    state.modalError='บันทึกไม่สำเร็จ: '+(err.message||err)+(/column|voucher|relation|constraint/i.test(err.message||'')?' — '+COUPON_SQL_HINT:'');
+    render();
+  }
+}
+/* ---- print ---- */
+function printableItems(scope, from, to){
+  const data=state.planData;
+  return data.coupons.filter(c=>c.voucher && !c.destroyed && (scope!=='range' || (c.no>=from && c.no<=to))).sort((a,b)=>a.no-b.no).map(c=>({no:c.no, v:c.voucher}));
+}
+function setPrintStatus(msg, pct){
+  const el=document.getElementById('print-status'); if(el) el.textContent=msg;
+  const bar=document.getElementById('print-bar'); if(bar){ bar.parentElement.hidden = pct==null; if(pct!=null) bar.style.width=Math.round(pct*100)+'%'; }
+}
+async function printCoupons(){
+  const plan=currentPlan(), o=state.printOpts;
+  const from=parseInt(o.from,10), to=parseInt(o.to,10);
+  if(o.scope==='range' && (!from || !to || from>to)){ state.modalError='ใส่ช่วงเบอร์ให้ถูกต้อง'; render(); return; }
+  const items=printableItems(o.scope, from, to);
+  if(!items.length){ state.modalError='ไม่มีคูปองที่มีเลขจริงในช่วงนี้ให้พิมพ์'; render(); return; }
+  if(typeof ZXing==='undefined' || typeof JsBarcode==='undefined' || !window.jspdf){ state.modalError='โหลดเครื่องมือสร้าง PDF ไม่สำเร็จ ลองรีเฟรชหน้า'; render(); return; }
+  const btn=document.querySelector('[data-act="submitPrint"]'); if(btn) btn.disabled=true;
+  state.modalError='';
+  let ok=0; const failed=[];
+  for(let i=0;i<items.length;i++){
+    if(cpDecode(items[i].v)===items[i].v) ok++; else failed.push(items[i].no);
+    if(i%25===0){ setPrintStatus(`กำลังสแกนตรวจบาร์โค้ด ${i}/${items.length}`, i/items.length*0.85); await new Promise(r=>setTimeout(r)); }
+  }
+  if(failed.length){ setPrintStatus(`สแกนไม่ผ่าน ${failed.length} ใบ (เบอร์ ${failed.slice(0,5).join(', ')}) ยังไม่ออก PDF`, null); if(btn) btn.disabled=false; return; }
+  setPrintStatus(`สแกนผ่าน ${ok}/${items.length} ใบ กำลังสร้าง PDF…`, 0.9);
+  await cpFontsReady(); await new Promise(r=>setTimeout(r,30));
+  const spec=couponSpec(plan);
+  const doc=cpBuildPdf(spec, items);
+  const d=spec.from ? `${spec.from.getDate()}-${spec.from.getMonth()+1}` : '';
+  const scopeLabel = o.scope==='range' ? `_เบอร์${from}-${to}` : '';
+  doc.save(`คูปอง${spec.value}บาท_${plan.name}_${d}${scopeLabel}_${items.length}ใบ.pdf`.replace(/[\/:*?"<>|]/g,'-'));
+  const ranges=compressRanges(items.map(i=>i.no));
+  await sb.from('transactions').insert({plan_id:plan.id, action_type:'พิมพ์', ranges, count:items.length, previous_owner:null, new_owner:null, note:'ใบยาว 10 ใบ/หน้า'});
+  await refreshCurrentPlan();
+  closeModal();
+  showToast(`ดาวน์โหลด PDF แล้ว ${items.length} ใบ — สแกนตรวจบาร์โค้ดผ่านทุกใบ`);
+}
 /* ============ Coupon-type settings ============ */
 async function saveTypeSettings(){
   const rows = state.typeEditRows.filter(r=>r.name && r.name.trim())
@@ -1060,25 +1447,28 @@ function downloadXlsx(filename, sheetsObj){
 }
 function exportHistoryXlsx(){
   const data = state.planData; const plan = currentPlan();
-  const rows = [['วันที่เวลา','ประเภท','ช่วงเบอร์','เจ้าของเดิม','เจ้าของใหม่ / ผู้ดำเนินการ','หมายเหตุ','มีรูปแนบ']];
+  const rows = [['วันที่เวลา','ประเภท','ช่วงเบอร์','จำนวน','เจ้าของเดิม','เจ้าของใหม่ / ผู้ดำเนินการ','หมายเหตุ','มีรูปแนบ']];
   [...data.transactions].sort((a,b)=>b.timestamp-a.timestamp).forEach(t=>{
-    rows.push([fmtDate(t.timestamp), t.actionType, txRangeLabel(t), t.previousOwner||'-', t.newOwner||'-', t.note||'', t.photo?'มี':'-']);
+    rows.push([fmtDate(t.timestamp), t.actionType, txRangeLabel(t), t.count||((t.rangeTo&&t.rangeFrom)?t.rangeTo-t.rangeFrom+1:''), t.previousOwner||'-', t.newOwner||'-', t.note||'', t.photo?'มี':'-']);
   });
   downloadXlsx(`ประวัติ-${plan.name}.xlsx`, {'ประวัติ':rows}); showToast('ดาวน์โหลดไฟล์ Excel ประวัติแล้ว');
 }
 function exportSummaryXlsx(){
   const data = state.planData; const plan = currentPlan();
   const byOwner = {}; data.coupons.forEach(c=>{ if(c.owner) (byOwner[c.owner]=byOwner[c.owner]||[]).push(c.no); });
-  const rows = [['เจ้าของ','จำนวน (ใบ)','ช่วงเบอร์']];
-  Object.keys(byOwner).sort().forEach(owner=>{ rows.push([owner, byOwner[owner].length, compressRanges(byOwner[owner]).map(rangeLabel).join(' , ')]); });
+  const rows = [['เจ้าของ','จำนวน (ใบ)','ช่วงเบอร์','เลขคูปองแรก','เลขคูปองสุดท้าย']];
+  Object.keys(byOwner).sort().forEach(owner=>{
+    const v = data.coupons.filter(c=>c.owner===owner && c.voucher).sort((a,b)=>a.no-b.no);
+    rows.push([owner, byOwner[owner].length, compressRanges(byOwner[owner]).map(rangeLabel).join(' , '), v.length?v[0].voucher:'-', v.length?v[v.length-1].voucher:'-']);
+  });
   const destroyedNums = data.coupons.filter(c=>c.destroyed).map(c=>c.no);
   if(destroyedNums.length) rows.push(['(ทำลายแล้ว)', destroyedNums.length, compressRanges(destroyedNums).map(rangeLabel).join(' , ')]);
   downloadXlsx(`สรุปคงเหลือ-${plan.name}.xlsx`, {'สรุปคงเหลือ':rows}); showToast('ดาวน์โหลดไฟล์ Excel สรุปแล้ว');
 }
 function exportAllPlansXlsx(){
-  const rows = [['รหัสสาขา','สาขา/แผนงาน','จังหวัด','ทีม','ประเภทงาน','ต้องการสื่อพม่า','เบิกแล้ว','ทำลายแล้ว','ทั้งหมด','วันที่เริ่ม','วันที่จบ','สถานะ']];
+  const rows = [['รหัสสาขา','สาขา/แผนงาน','จังหวัด','ทีม','ประเภทงาน','ต้องการสื่อพม่า','เบิกแล้ว','ทำลายแล้ว','ทั้งหมด','มีเลขคูปองจริง','วันที่เริ่ม','วันที่จบ','สถานะ']];
   state.plans.filter(p=>!p.archived).forEach(p=>{
-    rows.push([p.branchCode, p.name, p.province, p.team||'ยังไม่กำหนด', p.taskType, p.needsBurmese?'ใช่':'-', p.assignedCount||0, p.destroyedCount||0, p.totalCoupons, p.startDate||'-', p.endDate||'-', STATUS_LABEL[planStatus(p)]]);
+    rows.push([p.branchCode, p.name, p.province, p.team||'ยังไม่กำหนด', p.taskType, p.needsBurmese?'ใช่':'-', p.assignedCount||0, p.destroyedCount||0, p.totalCoupons, p.voucherCount||0, p.startDate||'-', p.endDate||'-', STATUS_LABEL[planStatus(p)]]);
   });
   downloadXlsx('แผนงานทั้งหมด.xlsx', {'แผนงานทั้งหมด':rows}); showToast('ดาวน์โหลดไฟล์ Excel แผนงานทั้งหมดแล้ว');
 }
@@ -1113,6 +1503,21 @@ function render(){
     </div>
   `;
   attachHandlers();
+  drawCouponCanvases();
+}
+async function drawCouponCanvases(){
+  const plan = state.currentPlanId ? currentPlan() : null;
+  if(!plan || !state.planData) return;
+  const targets = [...document.querySelectorAll('canvas[data-plan-thumb], canvas[data-print-preview]')];
+  if(!targets.length || typeof JsBarcode==='undefined') return;
+  await cpFontsReady();
+  const t = cpFront(couponSpec(plan), 8);
+  const first = state.planData.coupons.find(c=>c.voucher);
+  targets.forEach(cv=>{
+    cv.width=t.canvas.width; cv.height=t.canvas.height;
+    const x=cv.getContext('2d'); x.drawImage(t.canvas,0,0);
+    if(first){ const bc=cpStubBarcode(t, first.voucher); x.fillStyle='#000'; for(const [rx,ry,rw,rh] of bc.rects) x.fillRect(rx*8,ry*8,rw*8,rh*8); }
+  });
 }
 function renderCrumbsPlan(){ const plan=currentPlan(); return `<div class="crumbs"><a data-act="home">แผนงานทั้งหมด</a> / ${escapeHtml(plan.name)}</div>`; }
 
@@ -1122,11 +1527,13 @@ function renderHelp(){
     <div class="help-hero">📘 คู่มือนี้สำหรับพนักงานหน้างาน อ่านเพื่อใช้ระบบเบิก-โอน-คืน-ทำลายคูปองให้ถูกต้อง</div>
     <div class="panel">
       <div class="help-step"><div class="num">1</div><div><h4>เบิกคูปอง</h4><p>เข้าไปในแผนงานของทีมตัวเอง กดปุ่ม "เบิกคูปอง" เลือกชื่อตัวเองจากรายชื่อทีม (หรือกด "พิมพ์เอง" ถ้าไม่เจอชื่อ) ใส่จำนวนที่จะเบิก ระบบจะให้เลขต่อจากคนก่อนหน้าอัตโนมัติ ไม่ต้องนับเอง</p></div></div>
+      <div class="help-step"><div class="num">1.1</div><div><h4>พิมพ์คูปอง</h4><p>เมื่อแผนงานขึ้นว่า "พิมพ์คูปองได้" กดปุ่ม "พิมพ์คูปอง" เลือกพิมพ์ทั้งแผนงานหรือเฉพาะช่วงเบอร์ แล้วกดดาวน์โหลด ระบบจะสแกนตรวจบาร์โค้ดทุกใบก่อนให้ไฟล์ PDF คูปองใบยาว 10 ใบต่อ 1 หน้า A4 สั่งพิมพ์ขนาด 100% (Actual size) ตัดตามเส้นประ</p></div></div>
       <div class="help-step"><div class="num">2</div><div><h4>โอน / สลับคูปอง</h4><p>ถ้าจะยกเลขที่เบิกไปแล้วให้เพื่อนในทีม กดปุ่ม "โอน/สลับ" เลือกช่วงจากรายการที่เบิกแล้ว แล้วเลือกคนที่จะรับ</p></div></div>
       <div class="help-step"><div class="num">3</div><div><h4>คืนคูปอง</h4><p>ถ้าเบิกมาแล้วแจกไม่หมด ให้กด "คืนคูปอง" เลือกช่วงที่จะคืนกลับกองกลาง เพื่อให้คนอื่นเบิกต่อได้หรือรอทำลายในวันสุดท้าย</p></div></div>
       <div class="help-step"><div class="num">4</div><div><h4>ขอคูปองเพิ่ม</h4><p>ถ้าคูปองในแผนงานหมดแต่ยังแจกไม่พอ กดปุ่ม "ขอคูปองเพิ่ม" ใส่จำนวนที่ต้องการ ระบบจะขยายเลขต่อให้อัตโนมัติ</p></div></div>
       <div class="help-step"><div class="num destroy">5</div><div><h4>ทำลายคูปอง (วันสุดท้ายของงานเท่านั้น)</h4><p>เมื่อถึงวันสุดท้ายของงานและมีคูปองเหลือ ต้องกด "ทำลายคูปองที่เหลือทั้งหมด" ระบบจะรวมคูปองที่เหลือทุกช่วงมาทำลายในครั้งเดียว <b>ต้องถ่ายรูปตอนทำลายแนบเป็นหลักฐานเสมอ</b> ห้ามมีคูปองเหลือค้างในระบบหลังจบงาน ปุ่มนี้จะกดไม่ได้ถ้ายังไม่ถึงวันสุดท้าย</p></div></div>
       <div class="help-step"><div class="num">6</div><div><h4>ดูประวัติ / ส่งออกข้อมูล</h4><p>แท็บ "ประวัติธุรกรรม" ในแต่ละแผนงานจะเก็บทุกการเบิก โอน คืน ขยาย ทำลาย ไว้ตรวจสอบย้อนหลังได้ กดปุ่ม "ส่งออก Excel" เพื่อดาวน์โหลดไปส่งหัวหน้างานได้ทันที</p></div></div>
+      <div class="help-step"><div class="num">A</div><div><h4>สำหรับแอดมิน: ใส่เลขคูปองจาก nest</h4><p>เปิดแผนงาน กด "อัปโหลดเลขจาก nest" แล้วเลือกไฟล์ VC…xlsx ระบบตรวจรหัสสาขา จำนวน เลขซ้ำ (รวมถึงซ้ำกับแผนงานอื่น) ก่อนให้บันทึก เบอร์ #1, #2 … ในสมุดจะผูกกับ Running No. ในไฟล์ อัปโหลดใหม่จะแทนที่เลขเดิมทั้งหมด</p></div></div>
       <div class="help-step"><div class="num">?</div><div><h4>ทำไมกดปุ่มไม่ได้</h4><p>ถ้าปุ่มเบิก/โอน/คืน กดไม่ได้ แสดงว่าแผนงานนี้ยังไม่ถูกกำหนดทีม ให้แจ้งหัวหน้างานหรือแอดมินกำหนดทีมก่อน ส่วนปุ่มทำลายจะกดได้เฉพาะวันสุดท้ายของงานเท่านั้น</p></div></div>
     </div>
   `;
@@ -1172,6 +1579,7 @@ function renderHome(){
       <div class="meta">${fmtDateShort(p.startDate)} – ${fmtDateShort(p.endDate)}</div>
       <div class="bar"><div class="bar-fill ${pct>=100?'full':''}" style="width:${pct}%"></div></div>
       <div class="count-line">เบิกแล้ว ${p.assignedCount||0} / ${p.totalCoupons} ใบ${p.destroyedCount ? ` · ทำลายแล้ว ${p.destroyedCount} ใบ` : ''}</div>
+      <div class="count-line">${p.voucherCount ? `<span class="chip chip-give">พิมพ์คูปองได้</span>` : `<span class="chip chip-type">ยังไม่มีเลขคูปอง</span>`}</div>
       <div style="margin-top:8px;"><button class="btn btn-sm btn-ghost" data-act="archive" data-id="${p.id}">${p.archived?'กู้คืน':'เก็บถาวร'}</button></div>
     </div>`;
   };
@@ -1206,10 +1614,12 @@ function renderPlan(){
   const owners = Object.keys(byOwner).sort();
   const status = planStatus(plan);
 
+  const voucherCount = data.coupons.filter(c=>c.voucher).length;
   const gridCells = data.coupons.map(c=>{
     let cls='', style='', title='ยังไม่มีเจ้าของ';
     if(c.destroyed){ cls='destroyed'; title='ทำลายแล้ว'; }
     else if(c.owner){ cls='owned'; style=`background:${colorForKey(c.owner)};`; title=c.owner; }
+    if(c.voucher) title += ' · '+c.voucher;
     return `<div class="coupon ${cls}" style="${style}" title="${escapeHtml(title)}">${c.no}</div>`;
   }).join('');
   const legend = owners.map(o=>`<div class="legend-chip"><span class="legend-swatch" style="background:${colorForKey(o)}"></span>${escapeHtml(o)}</div>`).join('')
@@ -1223,7 +1633,7 @@ function renderPlan(){
     .filter(t => !state.historyFilterName || ((t.newOwner||'')+'|'+(t.previousOwner||'')).toLowerCase().includes(state.historyFilterName.toLowerCase()))
     .filter(t => !state.historyFilterDate || new Date(t.timestamp).toISOString().slice(0,10) === state.historyFilterDate)
     .sort((a,b)=>b.timestamp-a.timestamp);
-  const actionStyle = {'เบิก':'color:var(--act-claim);font-weight:800;', 'โอน':'color:var(--act-transfer);font-weight:800;', 'ขยาย':'color:var(--act-extend);font-weight:800;', 'คืน':'color:var(--act-return);font-weight:800;', 'ทำลาย':'color:var(--act-destroy);font-weight:800;'};
+  const actionStyle = {'พิมพ์':'color:var(--ink);font-weight:800;', 'ใส่เลขคูปอง':'color:var(--brand-blue);font-weight:800;', 'เบิก':'color:var(--act-claim);font-weight:800;', 'โอน':'color:var(--act-transfer);font-weight:800;', 'ขยาย':'color:var(--act-extend);font-weight:800;', 'คืน':'color:var(--act-return);font-weight:800;', 'ทำลาย':'color:var(--act-destroy);font-weight:800;'};
   const historyRows = filteredTx.length ? filteredTx.map((t)=>`
     <tr>
       <td style="white-space:nowrap;">${fmtDate(t.timestamp)}</td>
@@ -1231,7 +1641,7 @@ function renderPlan(){
       <td>${txRangeLabel(t)}</td>
       <td>${t.previousOwner ? escapeHtml(t.previousOwner) : '<span style="color:var(--ink-faint)">—</span>'}</td>
       <td>${t.newOwner ? escapeHtml(t.newOwner) : '<span style="color:var(--ink-faint)">—</span>'}</td>
-      <td>${escapeHtml(t.note||'')} ${t.photo ? `<button type="button" class="link-btn" data-act="viewPhoto" data-photo-idx="${data.transactions.indexOf(t)}">ดูรูป</button>` : ''}</td>
+      <td>${t.count && t.actionType==='พิมพ์' ? `${t.count} ใบ ` : ''}${escapeHtml(t.note||'')} ${t.photo ? `<button type="button" class="link-btn" data-act="viewPhoto" data-photo-idx="${data.transactions.indexOf(t)}">ดูรูป</button>` : ''}</td>
     </tr>`).join('') : `<tr><td colspan="6" class="empty-row">ไม่พบรายการ</td></tr>`;
 
   let destroyBtn;
@@ -1244,6 +1654,7 @@ function renderPlan(){
       <div><h2>${escapeHtml(plan.name)}</h2><div class="meta">${escapeHtml(plan.branchCode||'-')} · ${escapeHtml(plan.province||'-')} · ${fmtDateShort(plan.startDate)} – ${fmtDateShort(plan.endDate)}</div></div>
       <div class="toolbar">
         <button class="btn btn-claim" data-act="claim" ${!plan.team?'disabled':''}>เบิกคูปอง</button>
+        <button class="btn btn-print" data-act="printCoupons" ${!voucherCount?'disabled title="ยังไม่มีเลขคูปองจริง รอแอดมินอัปโหลดไฟล์จาก nest"':''}>พิมพ์คูปอง</button>
         <button class="btn btn-transfer" data-act="transfer" ${!plan.team?'disabled':''}>โอน / สลับ</button>
         <button class="btn btn-return" data-act="returnCoupons" ${!plan.team?'disabled':''}>คืนคูปอง</button>
         <button class="btn btn-extend" data-act="extend">ขอคูปองเพิ่ม</button>
@@ -1274,6 +1685,7 @@ function renderPlan(){
       ${plan.needsBurmese ? '<span class="chip chip-burmese">ต้องการสื่อพม่า</span>' : ''}
     </div>
     <div class="meta" style="margin-bottom:14px;">เบิกแล้ว ${assignedCount} / ${plan.totalCoupons} ใบ${destroyedCount ? ` · ทำลายแล้ว ${destroyedCount} ใบ` : ''} · เหลือให้เบิก ${remaining} ใบ</div>
+    ${renderVoucherPanel(plan, assignedCount, voucherCount)}
 
     <div class="tabs">
       <button class="tab ${state.planTab==='grid'?'active':''}" data-act="tab" data-tab="grid">สรุป &amp; กริดเบอร์</button>
@@ -1303,6 +1715,29 @@ function renderPlan(){
   `;
 }
 
+/* ============ Render: printable-coupon panel ============ */
+function renderVoucherPanel(plan, assignedCount, voucherCount){
+  const spec = couponSpec(plan);
+  const lastPrint = state.planData.transactions.filter(t=>t.actionType==='พิมพ์').sort((a,b)=>b.timestamp-a.timestamp)[0];
+  return `
+    <div class="panel voucher-panel">
+      ${voucherCount ? `<canvas class="ticket-preview" data-plan-thumb="1" aria-label="ตัวอย่างคูปองของแผนงานนี้"></canvas>` : `<div class="ticket-empty">ยังไม่มีเลขคูปองจริง<br>แอดมินอัปโหลดไฟล์จาก nest แล้วคูปองจะขึ้นตรงนี้</div>`}
+      <div class="vp-body">
+        <div>
+          <h3 class="vp-title">คูปองเงินสด ${spec.value} บาท</h3>
+          <div class="vp-sub">${voucherCount ? `มีเลขจริง ${voucherCount} / ${plan.totalCoupons} ใบ · ใช้ได้ ${escapeHtml(thRange(spec.from, spec.to))}${plan.voucherFile ? ` · ไฟล์ ${escapeHtml(plan.voucherFile)}` : ''}` : 'ยังพิมพ์ไม่ได้ จนกว่าจะใส่เลขคูปองจาก nest'}</div>
+        </div>
+        <div class="vp-stats">
+          <div class="vp-stat claim"><b>${assignedCount}</b><span>เบิกแล้ว</span></div>
+          <div class="vp-stat"><b>${voucherCount}</b><span>มีเลขพร้อมพิมพ์</span></div>
+          ${lastPrint ? `<div class="vp-stat"><b style="font-size:15px;">${escapeHtml(fmtDate(lastPrint.timestamp))}</b><span>พิมพ์ล่าสุด ${lastPrint.count||''} ใบ</span></div>` : ''}
+        </div>
+        ${!state.schemaReady ? `<div class="schema-warn">ฐานข้อมูลยังไม่รองรับเลขคูปอง — ${COUPON_SQL_HINT}</div>` : ''}
+        <div><button class="btn btn-sm btn-ghost" data-act="uploadVouchers">${voucherCount ? 'อัปโหลดเลขจาก nest ใหม่' : 'อัปโหลดเลขจาก nest (แอดมิน)'}</button></div>
+      </div>
+    </div>`;
+}
+
 /* ============ Render: employee picker (team locked to plan) ============ */
 function renderEmployeePicker(prefix, manual, labelOverride){
   const plan = currentPlan();
@@ -1313,7 +1748,7 @@ function renderEmployeePicker(prefix, manual, labelOverride){
       <label>${escapeHtml(label)} (ทีม ${escapeHtml(plan.team||'-')})</label>
       <select id="${prefix}-employee-select">
         <option value="">— เลือกพนักงาน —</option>
-        ${emps.map(e=>`<option value="${escapeHtml(e.nickname+' / '+e.name)}">${escapeHtml(e.nickname)} — ${escapeHtml(e.name)}</option>`).join('')}
+        ${emps.map(e=>{ const v=e.nickname+' / '+e.name; return `<option value="${escapeHtml(v)}" >${escapeHtml(e.nickname)} — ${escapeHtml(e.name)}</option>`; }).join('')}
       </select>
       <button type="button" class="link-btn" style="margin-top:6px;" data-act="${prefix}Manual">ไม่พบชื่อในรายชื่อ พิมพ์เอง</button>
     </div>` : `
@@ -1507,6 +1942,55 @@ function renderModal(){
     </div></div>`;
   }
 
+  if(state.modal==='uploadVouchers'){
+    const imp = state.voucherImport;
+    const existing = state.planData.coupons.filter(c=>c.voucher).length;
+    const mark = {y:'✓', w:'!', n:'✕'};
+    return `
+    <div class="overlay" data-act="overlay"><div class="modal wide" data-act="stop">
+      <h3>ใส่เลขคูปองจาก nest</h3>
+      <div class="modal-note">แผนงาน "${escapeHtml(plan.name)}" (${escapeHtml(plan.branchCode||'-')}) · เลือกไฟล์ VC…xlsx ที่ export จาก nest ของสาขานี้ เบอร์ #1, #2 … ในสมุดจะผูกกับ Running No. ในไฟล์</div>
+      ${existing ? `<div class="modal-warning" style="margin-top:10px;">แผนงานนี้มีเลขคูปองอยู่แล้ว ${existing} ใบ อัปโหลดใหม่จะแทนที่เลขเดิมทั้งหมด</div>` : ''}
+      <div class="file-drop" style="margin-top:12px;">ไฟล์เลขคูปองจาก nest (.xlsx)<br><input type="file" id="f-voucher-file" accept=".xlsx,.xls,.csv"></div>
+      ${imp && imp.status==='reading' ? `<div class="print-status">กำลังอ่านไฟล์ ${escapeHtml(imp.fileName)}…</div>` : ''}
+      ${imp && imp.status!=='reading' ? `
+        <div class="import-summary" style="margin-top:12px;">
+          <div><b>${imp.items.length} ใบ</b>${escapeHtml(imp.fileName)}</div>
+          <div><b>${imp.value} บาท</b>มูลค่าต่อใบ</div>
+          <div><b>${escapeHtml(thRange(cpDate(imp.validFrom), cpDate(imp.validTo))||'-')}</b>วันที่ใช้ได้</div>
+          <div><b>${escapeHtml(imp.stores.join(', ')||'-')}</b>รหัสสาขาในไฟล์</div>
+        </div>
+        <div class="check-list">${imp.checks.map(c=>`<div><span class="${c.s}">${mark[c.s]}</span><span>${escapeHtml(c.t)}</span></div>`).join('')}</div>` : ''}
+      ${!state.schemaReady ? `<div class="schema-warn" style="margin-top:10px;">${COUPON_SQL_HINT}</div>` : ''}
+      ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
+      <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ยกเลิก</button><button class="btn btn-claim" data-act="submitVouchers" ${!imp || imp.status!=='ready' || imp.checks.some(c=>c.s==='n') ? 'disabled' : ''}>${imp && imp.status==='saving' ? 'กำลังบันทึก…' : 'บันทึกเลขคูปอง'}</button></div>
+    </div></div>`;
+  }
+
+  if(state.modal==='printCoupons'){
+    const o = state.printOpts;
+    const avail = state.planData.coupons.filter(c=>c.voucher && !c.destroyed).length;
+    const count = o.scope==='range' ? printableItems('range', parseInt(o.from,10)||0, parseInt(o.to,10)||0).length : avail;
+    const sheets = Math.ceil(count/10);
+    return `
+    <div class="overlay" data-act="overlay"><div class="modal wide" data-act="stop">
+      <h3>พิมพ์คูปอง ${escapeHtml(plan.name)}</h3>
+      <canvas class="ticket-preview" data-print-preview="1" aria-label="ตัวอย่างคูปอง" style="width:100%;height:auto;display:block;border-radius:6px;margin-bottom:12px;"></canvas>
+      <div class="field"><label>พิมพ์ชุดไหน</label>
+        <div class="seg-row">
+          <button type="button" class="seg-opt" data-act="printScope" data-scope="all" aria-pressed="${o.scope==='all'}">ทั้งแผนงาน<small>${avail} ใบ (ไม่รวมที่ทำลายแล้ว)</small></button>
+          <button type="button" class="seg-opt" data-act="printScope" data-scope="range" aria-pressed="${o.scope==='range'}">ระบุช่วงเบอร์<small>เช่น พิมพ์เพิ่มเฉพาะบางใบ</small></button>
+        </div>
+      </div>
+      ${o.scope==='range' ? `<div class="field-row"><div class="field"><label>จากเบอร์</label><input type="number" id="f-print-from" min="1" value="${escapeHtml(o.from)}"></div><div class="field"><label>ถึงเบอร์</label><input type="number" id="f-print-to" min="1" value="${escapeHtml(o.to)}"></div></div>` : ''}
+      <div class="modal-note" id="print-note">${count} ใบ · ${sheets} แผ่น A4 · ใบยาว 10 ใบต่อ 1 หน้า พิมพ์หน้าเดียว · สั่งพิมพ์ขนาด 100% (Actual size) ห้ามย่อให้พอดีหน้า · ก่อนให้ไฟล์ ระบบสแกนอ่านบาร์โค้ดทุกใบเทียบกับเลขจาก nest</div>
+      <div class="print-status" id="print-status" role="status"></div>
+      <div class="print-progress" hidden><i id="print-bar"></i></div>
+      ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
+      <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ยกเลิก</button><button class="btn btn-print" data-act="submitPrint" ${!count?'disabled':''}>สแกนตรวจ + ดาวน์โหลด PDF</button></div>
+    </div></div>`;
+  }
+
   if(state.modal==='settingsTypes'){
     return `
     <div class="overlay" data-act="overlay"><div class="modal" data-act="stop">
@@ -1654,6 +2138,11 @@ function attachHandlers(){
       });
       return;
     }
+    if(act==='uploadVouchers'){ state.voucherImport=null; openModal('uploadVouchers'); return; }
+    if(act==='submitVouchers'){ if(!el.disabled) confirmVoucherImport(); return; }
+    if(act==='printCoupons'){ if(el.disabled) return; state.printOpts={scope:'all', from:'', to:''}; openModal('printCoupons'); return; }
+    if(act==='printScope'){ state.printOpts.scope=el.dataset.scope; render(); return; }
+    if(act==='submitPrint'){ if(!el.disabled) printCoupons(); return; }
     if(act==='submitDestroy'){ destroyAllRemaining(getEmployeeValue('destroy', state.destroyManual), document.getElementById('f-destroy-note').value, state.destroyPhoto); return; }
   };
   app.onchange = (e) => {
@@ -1678,9 +2167,14 @@ function attachHandlers(){
     if(el.dataset.typeidx !== undefined){ state.typeEditRows[parseInt(el.dataset.typeidx,10)][el.dataset.field] = el.value; return; }
     if(el.id==='f-import-plans' && el.files[0]){ handleImportPlansFile(el.files[0]); return; }
     if(el.id==='f-import-employees' && el.files[0]){ handleImportEmployeesFile(el.files[0]); return; }
+    if(el.id==='f-voucher-file' && el.files[0]){ handleVoucherFile(el.files[0]); return; }
     if(el.id==='f-destroy-photo' && el.files[0]){ handleDestroyPhoto(el.files[0]); return; }
   };
   app.oninput = (e) => {
+    // keep typed values across the re-renders that option buttons trigger in these modals
+    const fieldMap = {'f-print-from':['printOpts','from'], 'f-print-to':['printOpts','to']};
+    const fm = fieldMap[e.target.id];
+    if(fm){ state[fm[0]][fm[1]]=e.target.value; const b=document.querySelector('[data-act="submitPrint"]'); const n=printableItems('range', parseInt(state.printOpts.from,10)||0, parseInt(state.printOpts.to,10)||0).length; if(b) b.disabled=!n; const nn=document.getElementById('print-note'); if(nn) nn.textContent=nn.textContent.replace(/^\d+ ใบ · \d+ แผ่น A4/, `${n} ใบ · ${Math.ceil(n/10)} แผ่น A4`); return; }
     const el = e.target.closest('[data-act]'); if(!el) return;
     if(el.dataset.act==='filterName'){ state.historyFilterName = el.value; render(); refocus('input[data-act="filterName"]'); }
     if(el.dataset.act==='filterDate'){ state.historyFilterDate = el.value; render(); }
