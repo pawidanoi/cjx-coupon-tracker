@@ -829,12 +829,12 @@ function cpFront(c, S){
   const c1x=mcx+ms*0.56, c1w=29;
   const brand='สาขา '+c.name; x.fillStyle=CP_INK; cpFit(x,brand,'700','Prompt',c1w,uh*0.15,1.5); x.fillText(brand,c1x,R(0.15));
   x.strokeStyle=th.main; x.lineWidth=0.25; x.beginPath(); x.moveTo(c1x,R(0.215)); x.lineTo(c1x+c1w,R(0.215)); x.stroke();
-  x.fillStyle=CP_INK; cpFit(x,'คูปองเงินสด','800','Prompt',c1w,uh*0.16,2); x.fillText('คูปองเงินสด',c1x,R(0.4));
-  let vs=uh*0.5; const vtxt=String(c.value), gap=uh*0.04;
+  x.fillStyle=CP_INK; cpFit(x,'คูปองเงินสด','800','Prompt',c1w,uh*0.16,2); x.fillText('คูปองเงินสด',c1x,R(0.375));
+  let vs=uh*0.46; const vtxt=String(c.value), gap=uh*0.04;
   const vm=()=>{ x.font='800 '+vs+'px Prompt'; const a=x.measureText(vtxt).width; x.font='800 '+(vs*0.4)+'px Prompt'; return a+gap+x.measureText('บาท').width; };
   while(vm()>c1w && vs>6) vs*=0.97;
-  x.fillStyle=th.main; x.font='800 '+vs+'px Prompt'; x.fillText(vtxt,c1x-0.3,R(0.79));
-  const vw=x.measureText(vtxt).width; x.font='800 '+(vs*0.4)+'px Prompt'; x.fillText('บาท',c1x-0.3+vw+gap,R(0.79));
+  x.fillStyle=th.main; x.font='800 '+vs+'px Prompt'; x.fillText(vtxt,c1x-0.3,R(0.8));
+  const vw=x.measureText(vtxt).width; x.font='800 '+(vs*0.4)+'px Prompt'; x.fillText('บาท',c1x-0.3+vw+gap,R(0.8));
   const when='ใช้ได้ '+thRange(c.from,c.to); x.fillStyle=CP_INK; cpFit(x,when,'600','Prompt',c1w,uh*0.105,1.4); x.fillText(when,c1x,R(0.97));
   // divider
   const dvx=c1x+c1w+1.8;
@@ -855,13 +855,15 @@ function cpFront(c, S){
   x.fillStyle=CP_INK; x.font='400 '+cs+'px Sarabun';
   const drawCol=(items,cx)=>{ let row=0; for(const t of items){ build([t],cs).forEach((l,i)=>{ const ly=y0+(row+1)*cs*1.28-cs*0.28; if(l.first){ x.fillStyle=th.main; x.fillText('•',cx,ly); x.fillStyle=CP_INK; } x.fillText(l.t,cx+1.7,ly); row++; }); } };
   drawCol(COND_FULL.slice(0,best.k), lx0); drawCol(COND_FULL.slice(best.k), lx0+colW+colGap);
-  // stub: label, horizontal barcode, digits
+  // stub: running-number badge (number stamped per coupon), horizontal barcode, digits, note
   const sx=fr.stubX, sw=fr.stubW, mid=sx+sw/2;
-  x.textAlign='center'; x.textBaseline='alphabetic'; x.fillStyle=th.main; cpFit(x,`คูปองเงินสด CJX · ${c.value} บาท`,'700','Prompt',sw-5,uh*0.15,1.4); x.fillText(`คูปองเงินสด CJX · ${c.value} บาท`,mid,R(0.17));
-  const note='เฉพาะสมาชิกใหม่ · ใช้ได้เฉพาะสาขานี้'; x.textAlign='left'; x.fillStyle=CP_MUTED; cpFit(x,note,'500','Prompt',sw-5-11,1.7,1.1); x.fillText(note,sx+2.6,u0+uh-0.2);
-  const by=R(0.3), bh=uh*0.42;
-  const st={horizontal:true, by, bh, digitsY:by+bh+3.1};
-  return {canvas:cv, W, H, fr, st, cs, no:{x:sx+sw-2.6, y:u0+uh-0.2}};
+  const nbW=Math.min(sw-8, 31), nbH=uh*0.27, nbY=u0+uh*0.0, nbSize=nbH*0.74;
+  x.fillStyle=th.main; cpRound(x,mid-nbW/2,nbY,nbW,nbH,nbH/2); x.fill();
+  x.fillStyle=CP_PAPER; x.globalAlpha=0.55; x.beginPath(); x.arc(mid-nbW/2+nbH*0.5, nbY+nbH/2, nbH*0.12, 0, Math.PI*2); x.arc(mid+nbW/2-nbH*0.5, nbY+nbH/2, nbH*0.12, 0, Math.PI*2); x.fill(); x.globalAlpha=1;
+  const note='เฉพาะสมาชิกใหม่ · ใช้ได้เฉพาะสาขานี้'; x.textAlign='center'; x.textBaseline='alphabetic'; x.fillStyle=CP_MUTED; cpFit(x,note,'500','Prompt',sw-6,1.8,1.1); x.fillText(note,mid,u0+uh-0.2);
+  const by=u0+uh*0.34, bh=uh*0.37;
+  const st={horizontal:true, by, bh, digitsY:by+bh+3.3};
+  return {canvas:cv, W, H, fr, st, cs, no:{cx:mid, cy:nbY+nbH/2, size:nbSize}};
 }
 function cpBars(value){
   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
@@ -901,10 +903,10 @@ function cpBuildPdf(c, items){
       doc.addImage(img,'PNG',0,oy,g.cw,g.ch,'front','FAST');
       const bc=cpStubBarcode(t,it.v); doc.setFillColor(0,0,0);
       for(const [rx,ry,rw,rh] of bc.rects) doc.rect(rx,oy+ry,rw,rh,'F');
-      doc.setFont('courier','bold'); doc.setFontSize(7.4); doc.setTextColor(29,29,27);
+      doc.setFont('courier','bold'); doc.setFontSize(8.2); doc.setTextColor(29,29,27);
       doc.text(cpSpaced(it.v), bc.x0+bc.len/2, oy+t.st.digitsY, {align:'center'});
-      doc.setFont('helvetica','normal'); doc.setFontSize(5.4); doc.setTextColor(90,90,85);
-      doc.text(`No.${String(it.no).padStart(4,'0')}`, t.no.x, oy+t.no.y, {align:'right'});
+      doc.setFont('helvetica','bold'); doc.setFontSize(t.no.size*2.835); doc.setTextColor(255,255,255);
+      doc.text(`No. ${String(it.no).padStart(4,'0')}`, t.no.cx, oy+t.no.cy+t.no.size*0.36, {align:'center'});
     });
     doc.setDrawColor(170,178,175); doc.setLineWidth(0.12); doc.setLineDashPattern([1.5,1.5],0);
     for(let r=1;r<g.rows;r++) doc.line(0,r*g.ch,CP_PAGE.w,r*g.ch);
@@ -928,8 +930,15 @@ function cpParseDmy(s){
   if(!m) return null; let y=+m[3]; if(y>2400) y-=543;
   return `${y}-${String(+m[2]).padStart(2,'0')}-${String(+m[1]).padStart(2,'0')}`;
 }
+// The page keeps a copy of the plan list; if someone deleted the plan meanwhile, writes fail on a foreign key
+async function planStillExists(plan){
+  const {data, error} = await sb.from('plans').select('id').eq('id', plan.id).limit(1);
+  return !error && !!(data && data.length);
+}
+const PLAN_GONE_MSG = 'แผนงานนี้ไม่อยู่ในระบบแล้ว (มีคนกดลบ/ล้างแผนงาน หรือหน้านี้เก่า) กด F5 โหลดหน้าใหม่ แล้วนำเข้าแผนงานอีกครั้ง จึงอัปโหลดเลขคูปองได้';
 async function handleVoucherFile(file){
   const plan=currentPlan();
+  if(!(await planStillExists(plan))){ state.voucherImport=null; state.modalError=PLAN_GONE_MSG; render(); return; }
   state.voucherImport={fileName:file.name, status:'reading'}; state.modalError=''; render();
   try{
     const wb=XLSX.read(await file.arrayBuffer(), {type:'array'});
@@ -974,6 +983,7 @@ async function confirmVoucherImport(){
   const plan=currentPlan(), imp=state.voucherImport;
   if(!imp || imp.status!=='ready') return;
   if(imp.checks.some(c=>c.s==='n')){ state.modalError='แก้รายการสีแดงก่อน หรือเลือกไฟล์ที่ถูกต้อง'; render(); return; }
+  if(!(await planStillExists(plan))){ state.voucherImport=null; state.modalError=PLAN_GONE_MSG; render(); return; }
   imp.status='saving'; render();
   try{
     const maxNo=Math.max(...imp.items.map(i=>i.no));
@@ -1000,6 +1010,7 @@ async function confirmVoucherImport(){
     showToast(`ใส่เลขคูปองจาก nest แล้ว ${imp.items.length} ใบ พร้อมให้ทีมพิมพ์`);
   }catch(err){
     console.error(err); imp.status='ready';
+    if(/foreign key/i.test(err.message||'')){ state.voucherImport=null; state.modalError=PLAN_GONE_MSG; render(); return; }
     state.modalError='บันทึกไม่สำเร็จ: '+(err.message||err)+(/column|voucher|relation|constraint/i.test(err.message||'')?' — '+COUPON_SQL_HINT:'');
     render();
   }
@@ -1516,7 +1527,9 @@ async function drawCouponCanvases(){
   targets.forEach(cv=>{
     cv.width=t.canvas.width; cv.height=t.canvas.height;
     const x=cv.getContext('2d'); x.drawImage(t.canvas,0,0);
-    if(first){ const bc=cpStubBarcode(t, first.voucher); x.fillStyle='#000'; for(const [rx,ry,rw,rh] of bc.rects) x.fillRect(rx*8,ry*8,rw*8,rh*8); }
+    if(first){ const bc=cpStubBarcode(t, first.voucher); x.fillStyle='#000'; for(const [rx,ry,rw,rh] of bc.rects) x.fillRect(rx*8,ry*8,rw*8,rh*8);
+      x.font='500 '+(2.3*8)+'px "IBM Plex Mono", monospace'; x.textAlign='center'; x.fillStyle='#1d1d1b'; x.fillText(cpSpaced(first.voucher),(bc.x0+bc.len/2)*8,t.st.digitsY*8);
+      x.font='700 '+(t.no.size*8)+'px Prompt, sans-serif'; x.fillStyle='#fff'; x.textBaseline='alphabetic'; x.fillText('No. '+String(first.no).padStart(4,'0'),t.no.cx*8,(t.no.cy+t.no.size*0.36)*8); }
   });
 }
 function renderCrumbsPlan(){ const plan=currentPlan(); return `<div class="crumbs"><a data-act="home">แผนงานทั้งหมด</a> / ${escapeHtml(plan.name)}</div>`; }
