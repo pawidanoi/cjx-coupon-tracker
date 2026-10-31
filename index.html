@@ -962,11 +962,6 @@ async function handleVoucherFile(file){
     if(imp.stores.length>1) imp.checks.push({s:'n',t:`ไฟล์มีหลายสาขา: ${imp.stores.join(', ')}`});
     else if(code && imp.stores[0] && imp.stores[0]!==code) imp.checks.push({s:'n',t:`รหัสสาขาในไฟล์ ${imp.stores[0]} ไม่ตรงกับแผนงานนี้ (${code})`});
     else if(imp.stores[0]) imp.checks.push({s:'y',t:`รหัสสาขาตรงกัน (${imp.stores[0]})`});
-    const maxNo=Math.max(...items.map(i=>i.no));
-    if(maxNo>plan.totalCoupons) imp.checks.push({s:'w',t:`ไฟล์มีถึงเบอร์ ${maxNo} แต่แผนงานมี ${plan.totalCoupons} ช่อง ระบบจะขยายให้อัตโนมัติ`});
-    else if(items.length<plan.totalCoupons) imp.checks.push({s:'w',t:`ไฟล์มี ${items.length} ใบ น้อยกว่าแผนงาน (${plan.totalCoupons} ช่อง) เบอร์ที่ไม่มีเลขจะพิมพ์ไม่ได้`});
-    else imp.checks.push({s:'y',t:`จำนวนตรงกับแผนงาน (${items.length} ใบ)`});
-    if(imp.validFrom && plan.startDate && imp.validFrom!==plan.startDate) imp.checks.push({s:'w',t:`วันเริ่มใช้คูปอง (${fmtDateShort(imp.validFrom)}) ไม่ตรงวันเริ่มงาน (${fmtDateShort(plan.startDate)})`});
     // Same voucher already sitting in another plan?
     const clash=new Map();
     for(let i=0;i<nums.length;i+=150){
@@ -975,9 +970,40 @@ async function handleVoucherFile(file){
       (data||[]).filter(d=>d.plan_id!==plan.id).forEach(d=>clash.set(d.plan_id,(clash.get(d.plan_id)||0)+1));
     }
     if(clash.size) imp.checks.push({s:'n',t:'เลขคูปองซ้ำกับแผนงานอื่น: '+[...clash].map(([id,n])=>`${(state.plans.find(p=>p.id===id)||{}).name||id} (${n} เลข)`).join(', ')});
+    imp.baseChecks=imp.checks;
+    imp.mode=state.planData.coupons.some(c=>c.voucher) ? 'append' : 'replace';
+    vcApplyMode(imp, plan);
     state.voucherImport=imp;
   }catch(err){ console.error(err); state.voucherImport=null; state.modalError=err.message||String(err); }
   render();
+}
+// Replace: file Running No. = ledger number. Append: file vouchers continue after the plan's highest numbered voucher
+function vcApplyMode(imp, plan){
+  const have=state.planData.coupons.filter(c=>c.voucher), haveSet=new Set(have.map(c=>c.v||c.voucher));
+  const sorted=[...imp.items].sort((x,y)=>x.no-y.no);
+  const append=imp.mode==='append' && have.length>0;
+  const base=append ? Math.max(...have.map(c=>c.no)) : 0;
+  imp.final=append ? sorted.map((it,i)=>({no:base+1+i, v:it.v})) : sorted;
+  const checks=[...imp.baseChecks];
+  const first=imp.final[0].no, maxNo=imp.final[imp.final.length-1].no;
+  if(append){
+    const dupHere=imp.final.filter(it=>haveSet.has(it.v)).length;
+    if(dupHere) checks.push({s:'n',t:`${dupHere} เลขในไฟล์นี้มีอยู่ในแผนงานนี้แล้ว (อาจเป็นไฟล์เดิม)`});
+    checks.push({s:'y',t:`เพิ่ม ${imp.final.length} ใบ เป็นเบอร์ #${first}–#${maxNo} ต่อจากเดิม (เลขเดิม ${have.length} ใบไม่ถูกแตะ)`});
+    if(plan.couponValue && imp.value!==plan.couponValue) checks.push({s:'n',t:`มูลค่าในไฟล์ ${imp.value} บาท ไม่ตรงกับคูปองเดิมในแผนงาน (${plan.couponValue} บาท)`});
+    const vf=[plan.validFrom,imp.validFrom].filter(Boolean).sort()[0], vt=[plan.validTo,imp.validTo].filter(Boolean).sort().pop();
+    imp.mergedFrom=vf||null; imp.mergedTo=vt||null;
+    if((plan.validFrom&&imp.validFrom&&plan.validFrom!==imp.validFrom)||(plan.validTo&&imp.validTo&&plan.validTo!==imp.validTo))
+      checks.push({s:'w',t:`วันใช้ได้ไม่เท่ากัน: เดิม ${thRange(cpDate(plan.validFrom),cpDate(plan.validTo))||'-'} / ไฟล์นี้ ${thRange(cpDate(imp.validFrom),cpDate(imp.validTo))||'-'} ใบที่พิมพ์จะแสดงช่วงรวม ${thRange(cpDate(vf),cpDate(vt))||'-'}`});
+  }else{
+    imp.mergedFrom=imp.validFrom; imp.mergedTo=imp.validTo;
+    if(maxNo>plan.totalCoupons) checks.push({s:'w',t:`ไฟล์มีถึงเบอร์ ${maxNo} แต่แผนงานมี ${plan.totalCoupons} ช่อง ระบบจะขยายให้อัตโนมัติ`});
+    else if(imp.items.length<plan.totalCoupons) checks.push({s:'w',t:`ไฟล์มี ${imp.items.length} ใบ น้อยกว่าแผนงาน (${plan.totalCoupons} ช่อง) เบอร์ที่ไม่มีเลขจะพิมพ์ไม่ได้`});
+    else checks.push({s:'y',t:`จำนวนตรงกับแผนงาน (${imp.items.length} ใบ)`});
+    if(imp.validFrom && plan.startDate && imp.validFrom!==plan.startDate) checks.push({s:'w',t:`วันเริ่มใช้คูปอง (${fmtDateShort(imp.validFrom)}) ไม่ตรงวันเริ่มงาน (${fmtDateShort(plan.startDate)})`});
+  }
+  if(append && maxNo>plan.totalCoupons) checks.push({s:'w',t:`เบอร์สุดท้าย #${maxNo} เกินช่องที่แผนงานมี (${plan.totalCoupons}) ระบบจะขยายให้อัตโนมัติ`});
+  imp.append=append; imp.checks=checks;
 }
 async function confirmVoucherImport(){
   const plan=currentPlan(), imp=state.voucherImport;
@@ -986,7 +1012,7 @@ async function confirmVoucherImport(){
   if(!(await planStillExists(plan))){ state.voucherImport=null; state.modalError=PLAN_GONE_MSG; render(); return; }
   imp.status='saving'; render();
   try{
-    const maxNo=Math.max(...imp.items.map(i=>i.no));
+    const items=imp.final, maxNo=items[items.length-1].no;
     if(maxNo>plan.totalCoupons){
       const oldTotal=plan.totalCoupons;
       const add=Array.from({length:maxNo-oldTotal},(_,i)=>({plan_id:plan.id, no:oldTotal+1+i, owner:null, destroyed:false}));
@@ -995,19 +1021,20 @@ async function confirmVoucherImport(){
       await sb.from('transactions').insert({plan_id:plan.id, action_type:'ขยาย', range_from:oldTotal+1, range_to:maxNo, previous_owner:null, new_owner:null, note:'ขยายตามไฟล์เลขคูปองจาก nest'});
       plan.totalCoupons=maxNo;
     }
-    // clear old numbers first so a re-upload never leaves stale vouchers behind
-    const {error:e1}=await sb.from('coupons').update({voucher:null}).eq('plan_id',plan.id); if(e1) throw e1;
-    for(let i=0;i<imp.items.length;i+=500){
-      const chunk=imp.items.slice(i,i+500).map(it=>({plan_id:plan.id, no:it.no, voucher:it.v}));
+    // replace: clear old numbers first so a re-upload never leaves stale vouchers behind (append keeps them)
+    if(!imp.append){ const {error:e1}=await sb.from('coupons').update({voucher:null}).eq('plan_id',plan.id); if(e1) throw e1; }
+    for(let i=0;i<items.length;i+=500){
+      const chunk=items.slice(i,i+500).map(it=>({plan_id:plan.id, no:it.no, voucher:it.v}));
       const {error}=await sb.from('coupons').upsert(chunk,{onConflict:'plan_id,no'}); if(error) throw error;
     }
-    const patch={coupon_value:imp.value, valid_from:imp.validFrom, valid_to:imp.validTo, voucher_file:imp.fileName, voucher_uploaded_at:new Date().toISOString()};
+    const fileLabel=imp.append&&plan.voucherFile ? plan.voucherFile+', '+imp.fileName : imp.fileName;
+    const patch={coupon_value:imp.value, valid_from:imp.mergedFrom, valid_to:imp.mergedTo, voucher_file:fileLabel, voucher_uploaded_at:new Date().toISOString()};
     const {error:e2}=await sb.from('plans').update(patch).eq('id',plan.id); if(e2) throw e2;
-    Object.assign(plan,{couponValue:imp.value, validFrom:imp.validFrom, validTo:imp.validTo, voucherFile:imp.fileName, voucherUploadedAt:patch.voucher_uploaded_at});
-    await sb.from('transactions').insert({plan_id:plan.id, action_type:'ใส่เลขคูปอง', range_from:Math.min(...imp.items.map(i=>i.no)), range_to:maxNo, count:imp.items.length, previous_owner:null, new_owner:null, note:imp.fileName});
+    Object.assign(plan,{couponValue:imp.value, validFrom:imp.mergedFrom, validTo:imp.mergedTo, voucherFile:fileLabel, voucherUploadedAt:patch.voucher_uploaded_at});
+    await sb.from('transactions').insert({plan_id:plan.id, action_type:'ใส่เลขคูปอง', range_from:items[0].no, range_to:maxNo, count:items.length, previous_owner:null, new_owner:null, note:(imp.append?'เพิ่มต่อ ':'')+imp.fileName});
     state.voucherImport=null;
     await refreshCurrentPlan(); closeModal();
-    showToast(`ใส่เลขคูปองจาก nest แล้ว ${imp.items.length} ใบ พร้อมให้ทีมพิมพ์`);
+    showToast(imp.append ? `เพิ่มเลขคูปอง ${items.length} ใบ เบอร์ #${items[0].no}–#${maxNo} พร้อมให้ทีมพิมพ์` : `ใส่เลขคูปองจาก nest แล้ว ${items.length} ใบ พร้อมให้ทีมพิมพ์`);
   }catch(err){
     console.error(err); imp.status='ready';
     if(/foreign key/i.test(err.message||'')){ state.voucherImport=null; state.modalError=PLAN_GONE_MSG; render(); return; }
@@ -1546,7 +1573,7 @@ function renderHelp(){
       <div class="help-step"><div class="num">4</div><div><h4>ขอคูปองเพิ่ม</h4><p>ถ้าคูปองในแผนงานหมดแต่ยังแจกไม่พอ กดปุ่ม "ขอคูปองเพิ่ม" ใส่จำนวนที่ต้องการ ระบบจะขยายเลขต่อให้อัตโนมัติ</p></div></div>
       <div class="help-step"><div class="num destroy">5</div><div><h4>ทำลายคูปอง (วันสุดท้ายของงานเท่านั้น)</h4><p>เมื่อถึงวันสุดท้ายของงานและมีคูปองเหลือ ต้องกด "ทำลายคูปองที่เหลือทั้งหมด" ระบบจะรวมคูปองที่เหลือทุกช่วงมาทำลายในครั้งเดียว <b>ต้องถ่ายรูปตอนทำลายแนบเป็นหลักฐานเสมอ</b> ห้ามมีคูปองเหลือค้างในระบบหลังจบงาน ปุ่มนี้จะกดไม่ได้ถ้ายังไม่ถึงวันสุดท้าย</p></div></div>
       <div class="help-step"><div class="num">6</div><div><h4>ดูประวัติ / ส่งออกข้อมูล</h4><p>แท็บ "ประวัติธุรกรรม" ในแต่ละแผนงานจะเก็บทุกการเบิก โอน คืน ขยาย ทำลาย ไว้ตรวจสอบย้อนหลังได้ กดปุ่ม "ส่งออก Excel" เพื่อดาวน์โหลดไปส่งหัวหน้างานได้ทันที</p></div></div>
-      <div class="help-step"><div class="num">A</div><div><h4>สำหรับแอดมิน: ใส่เลขคูปองจาก nest</h4><p>เปิดแผนงาน กด "อัปโหลดเลขจาก nest" แล้วเลือกไฟล์ VC…xlsx ระบบตรวจรหัสสาขา จำนวน เลขซ้ำ (รวมถึงซ้ำกับแผนงานอื่น) ก่อนให้บันทึก เบอร์ #1, #2 … ในสมุดจะผูกกับ Running No. ในไฟล์ อัปโหลดใหม่จะแทนที่เลขเดิมทั้งหมด</p></div></div>
+      <div class="help-step"><div class="num">A</div><div><h4>สำหรับแอดมิน: ใส่เลขคูปองจาก nest</h4><p>เปิดแผนงาน กด "อัปโหลดเลขจาก nest" แล้วเลือกไฟล์ VC…xlsx ระบบตรวจรหัสสาขา จำนวน เลขซ้ำ (รวมถึงซ้ำกับแผนงานอื่น) ก่อนให้บันทึก เบอร์ #1, #2 … ในสมุดจะผูกกับ Running No. ในไฟล์ ถ้าแผนงานมีเลขอยู่แล้ว เลือก "เพิ่มต่อจากเดิม" (เลขใหม่ต่อท้ายเบอร์เดิม เช่น 51–100) หรือ "แทนที่ทั้งหมด"</p></div></div>
       <div class="help-step"><div class="num">?</div><div><h4>ทำไมกดปุ่มไม่ได้</h4><p>ถ้าปุ่มเบิก/โอน/คืน กดไม่ได้ แสดงว่าแผนงานนี้ยังไม่ถูกกำหนดทีม ให้แจ้งหัวหน้างานหรือแอดมินกำหนดทีมก่อน ส่วนปุ่มทำลายจะกดได้เฉพาะวันสุดท้ายของงานเท่านั้น</p></div></div>
     </div>
   `;
@@ -1963,7 +1990,11 @@ function renderModal(){
     <div class="overlay" data-act="overlay"><div class="modal wide" data-act="stop">
       <h3>ใส่เลขคูปองจาก nest</h3>
       <div class="modal-note">แผนงาน "${escapeHtml(plan.name)}" (${escapeHtml(plan.branchCode||'-')}) · เลือกไฟล์ VC…xlsx ที่ export จาก nest ของสาขานี้ เบอร์ #1, #2 … ในสมุดจะผูกกับ Running No. ในไฟล์</div>
-      ${existing ? `<div class="modal-warning" style="margin-top:10px;">แผนงานนี้มีเลขคูปองอยู่แล้ว ${existing} ใบ อัปโหลดใหม่จะแทนที่เลขเดิมทั้งหมด</div>` : ''}
+      ${existing ? `<div class="modal-note" style="margin-top:10px;">แผนงานนี้มีเลขคูปองอยู่แล้ว ${existing} ใบ (ถึงเบอร์ #${Math.max(...state.planData.coupons.filter(c=>c.voucher).map(c=>c.no))}) เลือกวิธีใส่ไฟล์ใหม่</div>
+        <div class="seg-row" style="margin-top:8px;">
+          <button type="button" class="seg-opt" data-act="vcMode" data-mode="append" aria-pressed="${!imp||imp.mode==='append'}">เพิ่มต่อจากเดิม<small>เลขใหม่ต่อท้ายเบอร์เดิม ของเดิมไม่ถูกแตะ</small></button>
+          <button type="button" class="seg-opt" data-act="vcMode" data-mode="replace" aria-pressed="${!!imp&&imp.mode==='replace'}">แทนที่ทั้งหมด<small>ลบเลขเดิม ใช้เลขตามไฟล์ใหม่</small></button>
+        </div>` : ''}
       <div class="file-drop" style="margin-top:12px;">ไฟล์เลขคูปองจาก nest (.xlsx)<br><input type="file" id="f-voucher-file" accept=".xlsx,.xls,.csv"></div>
       ${imp && imp.status==='reading' ? `<div class="print-status">กำลังอ่านไฟล์ ${escapeHtml(imp.fileName)}…</div>` : ''}
       ${imp && imp.status!=='reading' ? `
@@ -2152,6 +2183,7 @@ function attachHandlers(){
       return;
     }
     if(act==='uploadVouchers'){ state.voucherImport=null; openModal('uploadVouchers'); return; }
+    if(act==='vcMode'){ const imp=state.voucherImport; if(imp&&imp.status==='ready'){ imp.mode=el.dataset.mode; vcApplyMode(imp,currentPlan()); } else state.vcModePref=el.dataset.mode; render(); return; }
     if(act==='submitVouchers'){ if(!el.disabled) confirmVoucherImport(); return; }
     if(act==='printCoupons'){ if(el.disabled) return; state.printOpts={scope:'all', from:'', to:''}; openModal('printCoupons'); return; }
     if(act==='printScope'){ state.printOpts.scope=el.dataset.scope; render(); return; }
