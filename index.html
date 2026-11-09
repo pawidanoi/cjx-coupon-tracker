@@ -436,9 +436,26 @@ async function startApp(){
   await loadAllData(); render();
   if(isAdmin()) syncEmployeesFromSheet({silent:true});
 }
+// A hung or failed start-up must never leave a blank page: show what happened and a way out
+function showFatal(msg){
+  const app = document.getElementById('app'); if(!app || (state.authReady && app.innerHTML.trim())) return;
+  app.innerHTML = `<div class="auth-wrap"><div class="auth-card"><div class="auth-panel" style="border-top:3px solid var(--ink);border-radius:var(--radius);">
+    <h2>เปิดระบบไม่สำเร็จ</h2><p class="lede">${escapeHtml(msg)}</p>
+    <button class="btn btn-claim btn-full" id="fatal-reload">ลองใหม่</button>
+    <div class="auth-hint"><button type="button" class="link-btn" id="fatal-clear">ล้างข้อมูลการเข้าระบบในเครื่องนี้แล้วลองใหม่</button></div>
+  </div></div></div>`;
+  document.getElementById('fatal-reload').onclick = () => location.reload();
+  document.getElementById('fatal-clear').onclick = () => { try{ Object.keys(localStorage).filter(k=>/^sb-|supabase/i.test(k)).forEach(k=>localStorage.removeItem(k)); }catch(e){} location.reload(); };
+}
+window.addEventListener('error', e => showFatal('เกิดข้อผิดพลาดตอนเปิดหน้า: '+(e.message||'ไม่ทราบสาเหตุ')));
+window.addEventListener('unhandledrejection', e => showFatal('เกิดข้อผิดพลาดตอนเชื่อมต่อ: '+((e.reason&&e.reason.message)||e.reason||'ไม่ทราบสาเหตุ')));
 async function init(){
+  render();   // "checking sign-in…" so the page is never empty while the session loads
   sb.auth.onAuthStateChange(ev => { if(ev==='SIGNED_OUT' && state.auth){ state.auth=null; state.authError='หมดเวลาการใช้งาน กรุณาเข้าสู่ระบบใหม่'; resetAppState(); render(); } });
-  const ok = await loadSession();
+  const timeout = new Promise(r => setTimeout(() => r('timeout'), 10000));
+  let ok = false;
+  try{ ok = await Promise.race([loadSession(), timeout]); }catch(err){ console.error(err); ok = false; }
+  if(ok==='timeout'){ ok=false; state.authError='เชื่อมต่อฐานข้อมูลช้าผิดปกติ ตรวจอินเทอร์เน็ตแล้วลองใหม่'; }
   state.authReady = true;
   if(ok) await startApp(); else render();
 }
