@@ -1823,21 +1823,22 @@ function renderHome(){
   const mine = homePlans();
   const types = [...new Set(mine.map(p=>p.taskType))].sort();
   const teams = teamsList();
-  let list = mine.filter(p=>!p.archived);
-  if(f.search){ const s=f.search.toLowerCase(); list = list.filter(p => (p.name+p.branchCode+p.province).toLowerCase().includes(s)); }
-  if(f.type) list = list.filter(p=>p.taskType===f.type);
-  if(f.status!=='all') list = list.filter(p=>planStatus(p)===f.status);
-  if(f.team) list = list.filter(p=>p.team===f.team);
   function isClosedPlan(p){
     const remaining = p.totalCoupons - (p.assignedCount||0) - (p.destroyedCount||0);
     return remaining<=0 && (p.assignedCount||0)+(p.destroyedCount||0)>0;
   }
+  // One filter for every plan, finished and archived ones included
+  const q = (f.search||'').trim().toLowerCase();
+  const matches = p => (!q || [p.name,p.branchCode,p.province,p.team,p.taskType].some(v=>String(v||'').toLowerCase().includes(q)))
+    && (!f.type || p.taskType===f.type) && (!f.team || p.team===f.team)
+    && (f.status==='all' || (f.status==='archived' ? p.archived : f.status==='closed' ? isClosedPlan(p) : planStatus(p)===f.status));
+  let list = f.status==='archived' ? [] : mine.filter(p=>!p.archived && matches(p));
   list.sort((a,b)=>{
     const ca = isClosedPlan(a) ? 1 : 0, cb = isClosedPlan(b) ? 1 : 0;
     if(ca!==cb) return ca-cb; // closed plans sink to the bottom
     return (a.startDate||'9999').localeCompare(b.startDate||'9999');
   });
-  const archived = isAdmin() ? state.plans.filter(p=>p.archived) : [];
+  const archived = mine.filter(p=>p.archived && matches(p));
 
   const folder = p => {
     const status = planStatus(p);
@@ -1873,6 +1874,8 @@ function renderHome(){
         <option value="upcoming" ${f.status==='upcoming'?'selected':''}>ยังไม่เริ่ม</option>
         <option value="active" ${f.status==='active'?'selected':''}>กำลังดำเนินการ</option>
         <option value="done" ${f.status==='done'?'selected':''}>จบแล้ว</option>
+        <option value="closed" ${f.status==='closed'?'selected':''}>ปิดงานแล้ว (คูปองหมด)</option>
+        <option value="archived" ${f.status==='archived'?'selected':''}>เก็บถาวร</option>
       </select>
       ${isAdmin() ? '<button class="btn btn-sm btn-ghost" data-act="exportAllPlans">ส่งออก Excel ทั้งหมด</button>' : ''}
     </div>
@@ -1881,7 +1884,7 @@ function renderHome(){
     ${isAdmin() && state.plans.length===0 ? `<div class="empty-state"><div class="big">ยังไม่มีแผนงาน</div><div>สร้างแผนงานแรก หรือนำเข้าจากไฟล์ Excel</div></div>` : ''}
     ${!isAdmin() && !state.auth.team ? `<div class="empty-state"><div class="big">บัญชีนี้ยังไม่มีทีม</div><div>รหัสพนักงานของคุณยังไม่ถูกจัดเข้าทีมในรายชื่อพนักงาน แจ้งแอดมินให้ตรวจสอบ</div></div>` : ''}
     ${!isAdmin() && state.auth.team && mine.length===0 ? `<div class="empty-state"><div class="big">ทีม ${escapeHtml(state.auth.team)} ยังไม่มีแผนงาน</div><div>เมื่อแอดมินกำหนดแผนงานให้ทีมแล้ว จะขึ้นที่หน้านี้</div></div>` : ''}
-    ${list.length===0 && mine.length>0 ? `<div class="empty-state">ไม่พบแผนงานที่ตรงกับตัวกรอง</div>` : ''}
+    ${list.length===0 && archived.length===0 && mine.length>0 ? `<div class="empty-state">ไม่พบแผนงานที่ตรงกับตัวกรอง (ค้นหารวมแผนงานที่จบและเก็บถาวรแล้ว)</div>` : ''}
   `;
 }
 
