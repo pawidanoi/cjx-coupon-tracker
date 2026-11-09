@@ -364,7 +364,8 @@ function unclaimedBlocks(){
 /* ============ Supabase client ============ */
 const SUPABASE_URL = 'https://mfgvjjitfcfyxwnvfwiu.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1mZ3Zqaml0ZmNmeXh3bnZmd2l1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4MzU0ODAsImV4cCI6MjEwMTQxMTQ4MH0.INT6OJHi37_OMqntpgwmNNafEWxDNJ22v9JCXi9y224';
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// No cross-tab auth lock: a lock left behind by another tab or an interrupted request can make getSession() wait forever
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {auth:{lock: async (name, acquireTimeout, fn) => await fn()}});
 const PHOTO_BUCKET = 'destroy-photos';
 
 /* ============ Employee roster: live Google Sheet source ============ */
@@ -422,13 +423,26 @@ const SETUP_MISSING_MSG = 'ระบบล็อกอินยังไม่�
 function resetAppState(){
   Object.assign(state, {plans:[], employees:[], couponTypes:[], planData:null, currentPlanId:null, view:'home', modal:null, modalError:'', appUsers:[], voucherImport:null, viewPhotoUrl:null});
 }
+function withTimeout(promise, ms, step){
+  return Promise.race([promise, new Promise((_,rej)=>setTimeout(()=>rej(new Error('TIMEOUT:'+step)), ms))]);
+}
+function clearStoredSession(){ try{ Object.keys(localStorage).filter(k=>/^sb-.*auth-token/i.test(k)).forEach(k=>localStorage.removeItem(k)); }catch(e){} }
 async function loadSession(){
-  const {data} = await sb.auth.getSession();
-  if(!data || !data.session){ state.auth=null; return false; }
-  const {data:me, error} = await sb.rpc('whoami');
-  if(error){ console.error(error); state.auth=null; state.authError = /whoami|function/i.test(error.message||'') ? SETUP_MISSING_MSG : 'เชื่อมต่อฐานข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง'; return false; }
-  if(!me){ await sb.auth.signOut(); state.auth=null; state.authError='บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน ติดต่อแอดมิน'; return false; }
-  state.auth = me; return true;
+  let step = 'อ่านสถานะล็อกอิน';
+  try{
+    const {data} = await withTimeout(sb.auth.getSession(), 8000, step);
+    if(!data || !data.session){ state.auth=null; return false; }
+    step = 'ตรวจสิทธิ์ผู้ใช้ (whoami)';
+    const {data:me, error} = await withTimeout(sb.rpc('whoami'), 10000, step);
+    if(error){ console.error(error); state.auth=null; state.authError = /whoami|function/i.test(error.message||'') ? SETUP_MISSING_MSG : 'เชื่อมต่อฐานข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง'; return false; }
+    if(!me){ await sb.auth.signOut(); state.auth=null; state.authError='บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน ติดต่อแอดมิน'; return false; }
+    state.auth = me; return true;
+  }catch(err){
+    console.error(err); state.auth=null;
+    if(/^TIMEOUT:/.test(err.message||'')){ clearStoredSession(); state.authError='ระบบค้างที่ขั้น "'+step+'" จึงล้างข้อมูลล็อกอินค้างในเครื่องแล้ว ลองเข้าใหม่อีกครั้ง ถ้ายังค้างให้แจ้งแอดมิน'; }
+    else state.authError='เชื่อมต่อไม่สำเร็จ: '+(err.message||err);
+    return false;
+  }
 }
 async function startApp(){
   state.view='home'; state.authError='';
@@ -452,10 +466,7 @@ window.addEventListener('unhandledrejection', e => showFatal('เกิดข้
 async function init(){
   render();   // "checking sign-in…" so the page is never empty while the session loads
   sb.auth.onAuthStateChange(ev => { if(ev==='SIGNED_OUT' && state.auth){ state.auth=null; state.authError='หมดเวลาการใช้งาน กรุณาเข้าสู่ระบบใหม่'; resetAppState(); render(); } });
-  const timeout = new Promise(r => setTimeout(() => r('timeout'), 10000));
-  let ok = false;
-  try{ ok = await Promise.race([loadSession(), timeout]); }catch(err){ console.error(err); ok = false; }
-  if(ok==='timeout'){ ok=false; state.authError='เชื่อมต่อฐานข้อมูลช้าผิดปกติ ตรวจอินเทอร์เน็ตแล้วลองใหม่'; }
+  const ok = await loadSession();
   state.authReady = true;
   if(ok) await startApp(); else render();
 }
