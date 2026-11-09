@@ -74,6 +74,41 @@
   .btn:disabled{ opacity:.45; cursor:not-allowed; box-shadow:none; }
   .btn-full{ display:block; width:100%; text-align:center; }
 
+  /* ---- Login + session ---- */
+  .auth-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px 14px; }
+  .auth-card{ width:100%; max-width:410px; }
+  .auth-card .masthead{ margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0; }
+  .auth-panel{ background:var(--panel); border:3px solid var(--ink); border-top:0; border-radius:0 0 var(--radius) var(--radius); padding:18px 16px 20px; box-shadow:var(--shadow); }
+  .auth-panel h2{ font-family:var(--display); font-weight:800; font-size:18px; margin:0 0 4px; }
+  .auth-panel .lede{ font-size:13px; color:var(--ink-soft); margin:0 0 14px; line-height:1.55; }
+  .auth-tabs{ display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:16px; }
+  .auth-tabs .seg-opt{ text-align:center; padding:10px 8px; }
+  .auth-panel .field input{ min-height:46px; }
+  .pw{ position:relative; }
+  .pw input{ padding-right:48px; }
+  .pw-eye{ position:absolute; right:2px; top:0; bottom:3px; width:44px; border:0; background:none; color:var(--ink-soft); display:flex; align-items:center; justify-content:center; border-radius:var(--radius-sm); }
+  .pw-eye:hover{ color:var(--ink); }
+  .pw-eye:focus-visible, .auth-panel button:focus-visible, .auth-panel input:focus-visible{ outline:3px solid var(--brand-blue); outline-offset:2px; }
+  .auth-panel .btn-full{ margin-top:6px; min-height:46px; font-size:15px; }
+  .auth-hint{ font-size:12px; color:var(--ink-soft); background:var(--paper-dark); border-radius:var(--radius-sm); padding:9px 11px; margin-top:14px; line-height:1.55; }
+  .nav-row{ display:flex; gap:6px; flex-wrap:wrap; margin:0 0 4px; }
+  .nav-row .btn{ background:transparent; border-width:2px; box-shadow:none; color:var(--ink-soft); }
+  .nav-row .btn:hover{ background:var(--paper-dark); color:var(--ink); }
+  .nav-row .btn.on{ background:var(--brand-yellow-soft); color:var(--ink); }
+  .nav-row .nav-danger{ color:var(--brand-red); border-color:var(--brand-red-soft); margin-left:auto; }
+  .who{ display:flex; align-items:center; gap:7px; background:var(--panel); border:2.5px solid var(--ink); border-radius:var(--radius-sm); padding:5px 10px; box-shadow:var(--shadow); font-size:12.5px; font-weight:700; }
+  .who-name{ max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .chip-admin{ background:var(--brand-red-soft); color:#A3201C; }
+  .users-bar{ display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; margin-bottom:12px; }
+  .users-sum{ display:flex; gap:18px; flex-wrap:wrap; font-size:12.5px; color:var(--ink-soft); }
+  .users-sum b{ color:var(--ink); font-family:var(--display); font-size:20px; margin-right:5px; font-variant-numeric:tabular-nums; }
+  .u-list{ border-top:2px solid var(--ink); }
+  .u-row{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:4px 12px; padding:10px 2px; border-bottom:1px solid var(--line); }
+  .u-who b{ font-weight:800; margin-right:6px; } .u-who span{ color:var(--ink-soft); font-size:13px; }
+  .u-sub{ font-size:12px; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+  
+  @media (max-width:640px){ .who-name{ max-width:110px; } .masthead-actions{ width:100%; justify-content:space-between; } .nav-row .nav-danger{ margin-left:0; } }
+
   .folder-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(240px,1fr)); gap:12px; }
   .folder{ background:var(--panel); border:2.5px solid var(--ink); border-top:8px solid var(--act-claim); border-radius:var(--radius); padding:14px; cursor:pointer; position:relative; box-shadow:var(--shadow); transition:transform .08s ease; }
   .folder:hover{ transform:translateY(-2px); }
@@ -257,6 +292,8 @@ let state = {
   employeeListFilter:'',
   schemaReady:true, voucherImport:null,
   printOpts:{scope:'all', from:'', to:''},
+  auth:null, authAdmin:false, authBusy:false, authError:'', authCode:'', authReady:false,
+  appUsers:[], userFilter:{search:'', team:'', status:''}, usersBusy:false,
 };
 
 const PALETTE = ['#F4D35E','#F2A6B0','#A7C7E7','#B7E4C7','#F6B26B','#C9B6E4','#E8C1A0','#9FD8D8','#D8B4E2','#C8D96F'];
@@ -356,27 +393,164 @@ function mapTxRow(t){
   return {
     id: t.id, timestamp: new Date(t.ts).getTime(), actionType: t.action_type,
     rangeFrom: t.range_from, rangeTo: t.range_to, ranges: t.ranges, count: t.count,
-    previousOwner: t.previous_owner, newOwner: t.new_owner, note: t.note, photo: t.photo_url,
+    previousOwner: t.previous_owner, newOwner: t.new_owner, note: t.note, photo: t.photo_url, actor: t.actor||null,
   };
 }
 
 /* ============ Bootstrap ============ */
+/* ============ Auth: login with employee code ============ */
+// Accounts are Supabase Auth users whose e-mail is "<employee code>@<AUTH_DOMAIN>" (no mail is ever sent).
+// Who may see/do what is enforced in the database (supabase-auth-2-lockdown.sql); the checks in this
+// file only hide controls a person cannot use anyway.
+const AUTH_DOMAIN = 'staff.cjx-coupon.app';
+const authEmail = code => code + '@' + AUTH_DOMAIN;
+// Staff sign in with the employee code only: behind the scenes the account password is derived from the code,
+// so it is NOT a secret (same value is checked in supabase-auth-1-setup.sql). Admin accounts are refused this
+// derived password and must use their own.
+const staffSecret = code => 'cjx-' + code + '-coupon-ledger';
+// Admin signs in with a 4-digit PIN (the real account password is derived from it; Supabase needs 6+ characters).
+// A new admin account starts with ADMIN_START_PIN and is forced to pick its own PIN before it gets any admin power.
+const ADMIN_START_PIN = '1234';
+const adminSecret = (code, pin) => 'cjx-admin-' + code + '-' + pin;
+const PIN_RE = /^\d{4}$/;
+const normCode = v => String(v||'').trim().toLowerCase().replace(/\s+/g,'');
+const isAdmin = () => !!(state.auth && state.auth.role==='admin' && !state.auth.must_change);
+const ADMIN_MODALS = new Set(['newPlan','transfer','returnCoupons','destroyCoupons','extend','editPlan','settingsTypes','importEmployees','uploadVouchers']);
+const ADMIN_ACTS = new Set(['archive','deletePlan','cleanupOldPlans','resetPlans','editTeam','submitAssignTeam','syncEmployeesNow','goUsers','exportAllPlans','changePw','submitChangePw']);
+const SETUP_MISSING_MSG = 'ระบบล็อกอินยังไม่ถูกติดตั้งในฐานข้อมูล ให้แอดมินรันไฟล์ supabase-auth-1-setup.sql ใน Supabase ก่อน';
+
+function resetAppState(){
+  Object.assign(state, {plans:[], employees:[], couponTypes:[], planData:null, currentPlanId:null, view:'home', modal:null, modalError:'', appUsers:[], voucherImport:null, viewPhotoUrl:null});
+}
+async function loadSession(){
+  const {data} = await sb.auth.getSession();
+  if(!data || !data.session){ state.auth=null; return false; }
+  const {data:me, error} = await sb.rpc('whoami');
+  if(error){ console.error(error); state.auth=null; state.authError = /whoami|function/i.test(error.message||'') ? SETUP_MISSING_MSG : 'เชื่อมต่อฐานข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง'; return false; }
+  if(!me){ await sb.auth.signOut(); state.auth=null; state.authError='บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน ติดต่อแอดมิน'; return false; }
+  state.auth = me; return true;
+}
+async function startApp(){
+  state.view='home'; state.authError='';
+  if(state.auth && state.auth.must_change){ render(); return; }
+  await loadAllData(); render();
+  if(isAdmin()) syncEmployeesFromSheet({silent:true});
+}
 async function init(){
-  await loadAllData();
-  render();
-  // Refresh the employee roster from the live Google Sheet in the background — runs after
-  // the first paint (not awaited here) so a slow/unreachable network never blocks app
-  // startup; whatever employees were last synced into Supabase are shown immediately, and
-  // this quietly brings them up to date and re-renders when it finishes.
-  syncEmployeesFromSheet({silent:true});
+  sb.auth.onAuthStateChange(ev => { if(ev==='SIGNED_OUT' && state.auth){ state.auth=null; state.authError='หมดเวลาการใช้งาน กรุณาเข้าสู่ระบบใหม่'; resetAppState(); render(); } });
+  const ok = await loadSession();
+  state.authReady = true;
+  if(ok) await startApp(); else render();
+}
+function authFail(msg){ state.authBusy=false; state.authError=msg; render(); }
+async function submitAuth(){
+  const code = normCode(document.getElementById('a-code').value);
+  const pwEl = document.getElementById('a-pw'), pw = pwEl ? pwEl.value : '';
+  state.authCode = code; state.authError='';
+  if(!code) return authFail('กรอกรหัสพนักงาน');
+  if(!/^[a-z0-9._-]+$/.test(code)) return authFail('รหัสพนักงานใช้ได้เฉพาะตัวอักษรอังกฤษ ตัวเลข และ . _ - เท่านั้น');
+  if(state.authAdmin && !PIN_RE.test(pw)) return authFail('รหัสแอดมินเป็นตัวเลข 4 หลัก (ครั้งแรกใส่ '+ADMIN_START_PIN+')');
+  const secret = state.authAdmin ? adminSecret(code, pw) : staffSecret(code);
+  state.authBusy=true; render();
+  try{
+    const email = authEmail(code);
+    let res = await sb.auth.signInWithPassword({email, password:secret});
+    if(res.error){
+      const m = res.error.message||'';
+      if(/rate|too many/i.test(m)) return authFail('ลองบ่อยเกินไป รอสักครู่แล้วลองใหม่');
+      // first visit: the database creates the account only for codes in the staff roster (or a not-yet-registered admin)
+      res = await sb.auth.signUp({email, password:secret});
+      if(res.error){
+        const m2 = res.error.message||'';
+        if(/already|registered/i.test(m2)){
+          if(state.authAdmin) return authFail('รหัสไม่ถูกต้อง ถ้าลืมให้ติดต่อ IT / ผู้ดูแลฐานข้อมูล');
+          state.authAdmin = true; return authFail('รหัสนี้เป็นบัญชีแอดมิน ใส่รหัส 4 หลักด้านล่าง');
+        }
+        if(/rate|too many/i.test(m2)) return authFail('ลองบ่อยเกินไป รอสักครู่แล้วลองใหม่');
+        if(/database error|REGISTER_CLOSED|NOT_IN_ROSTER|not allowed/i.test(m2)) return authFail(state.authAdmin ? 'เข้าสู่ระบบไม่สำเร็จ ตรวจรหัสพนักงานและรหัสผ่านอีกครั้ง' : 'ไม่พบรหัสพนักงานนี้ในรายชื่อพนักงาน ตรวจรหัสอีกครั้ง หรือแจ้งแอดมิน (ถ้าคุณเป็นแอดมิน กด "ฉันเป็นแอดมิน" ด้านล่าง)');
+        return authFail('เข้าสู่ระบบไม่สำเร็จ: '+m2);
+      }
+      if(!res.data || !res.data.session) return authFail('ระบบยังเปิดให้ยืนยันอีเมล แจ้งแอดมินปิด "Confirm email" ใน Supabase ก่อน');
+    }
+    if(!(await loadSession())) return authFail(state.authError || 'เข้าสู่ระบบไม่สำเร็จ');
+    state.authBusy=false; state.authCode=''; state.authAdmin=false;
+    await startApp();
+  }catch(err){ console.error(err); authFail('เชื่อมต่อไม่สำเร็จ ตรวจอินเทอร์เน็ตแล้วลองอีกครั้ง'); }
+}
+async function logout(){ await sb.auth.signOut(); state.auth=null; state.authError=''; state.authAdmin=false; resetAppState(); render(); }
+// Shared by the forced first-login screen and the voluntary "change PIN" dialog
+async function applyNewPin(pin, pin2){
+  if(!PIN_RE.test(pin)) return 'รหัสใหม่ต้องเป็นตัวเลข 4 หลัก';
+  if(pin===ADMIN_START_PIN) return 'ห้ามใช้รหัสเริ่มต้น '+ADMIN_START_PIN+' ตั้งรหัสอื่น';
+  if(pin!==pin2) return 'รหัสสองช่องไม่ตรงกัน';
+  const {error} = await sb.auth.updateUser({password: adminSecret(state.auth.code, pin)});
+  if(error) return 'เปลี่ยนรหัสไม่สำเร็จ: '+(error.message||error);
+  const {error:e2} = await sb.rpc('clear_must_change');
+  if(e2 && /PIN_UNCHANGED/.test(e2.message||'')) return 'ระบบยังเห็นรหัสเดิม ลองใหม่อีกครั้ง';
+  return '';
+}
+async function submitChangePw(){
+  const err = await applyNewPin(document.getElementById('f-newpw').value, document.getElementById('f-newpw2').value);
+  if(err){ state.modalError=err; render(); return; }
+  closeModal(); showToast('เปลี่ยนรหัสแอดมินแล้ว');
+}
+async function submitMustChange(){
+  const pin=document.getElementById('m-pin').value, pin2=document.getElementById('m-pin2').value;
+  state.authBusy=true; state.authError=''; render();
+  const err = await applyNewPin(pin, pin2);
+  state.authBusy=false;
+  if(err){ state.authError=err; render(); return; }
+  if(!(await loadSession())){ render(); return; }
+  await startApp();
+}
+function renderMustChange(){
+  const pinField = (id, label) => `<div class="field"><label for="${id}">${label}</label><input id="${id}" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="new-password" ${state.authBusy?'disabled':''}></div>`;
+  return `<div class="auth-wrap"><div class="auth-card">
+    <div class="masthead"><div class="masthead-row"><div class="brand-title">
+      <div class="brand-mark-wrap"><div class="brand-mark"><span class="c">C</span><span class="j">J</span><span class="x">X</span></div><div class="brand-mark-rule"></div></div>
+      <div><h1>สมุดเบิกคูปอง</h1><div class="sub">Coupon Ownership Ledger</div></div>
+    </div></div></div>
+    <form class="auth-panel" id="pin-form" novalidate>
+      <h2>ตั้งรหัสแอดมินใหม่</h2>
+      <p class="lede">เข้าครั้งแรกด้วยรหัสเริ่มต้น ${ADMIN_START_PIN} ต้องตั้งรหัสใหม่ตัวเลข 4 หลักก่อนจึงจะใช้งานแอดมินได้ ห้ามซ้ำกับรหัสเริ่มต้น</p>
+      ${pinField('m-pin','รหัสใหม่ (ตัวเลข 4 หลัก)')}
+      ${pinField('m-pin2','ยืนยันรหัสใหม่อีกครั้ง')}
+      ${state.authError ? `<div class="modal-error" role="alert">${escapeHtml(state.authError)}</div>` : ''}
+      <button class="btn btn-claim btn-full" type="submit" ${state.authBusy?'disabled':''}>${state.authBusy ? 'กำลังบันทึก…' : 'บันทึกรหัสใหม่และเข้าระบบ'}</button>
+      <div class="auth-hint"><button type="button" class="link-btn" data-act="logout">ยกเลิกและออกจากระบบ</button></div>
+    </form>
+  </div></div>`;
 }
 
+/* ---- admin: who has signed in ---- */
+async function loadAppUsers(){
+  state.usersBusy=true; render();
+  const {data, error} = await sb.from('app_users').select('*');
+  state.usersBusy=false;
+  if(error){ console.error(error); showToast('โหลดรายชื่อผู้ใช้ไม่สำเร็จ'); }
+  else state.appUsers = data||[];
+  render();
+}
+function goUsers(){ state.view='users'; state.currentPlanId=null; state.planData=null; render(); loadAppUsers(); }
+function usersRows(){
+  const map = new Map(state.appUsers.map(u=>[u.code,u]));
+  const rows = state.employees.filter(e=>normCode(e.code)).map(e=>{ const code=normCode(e.code), u=map.get(code); return {code, e, u, seen:!!(u&&u.registered_at)}; });
+  const inRoster = new Set(rows.map(r=>r.code));
+  state.appUsers.filter(u=>!inRoster.has(u.code)).forEach(u=>rows.push({code:u.code, e:{nickname:'', name:'(ไม่อยู่ในรายชื่อพนักงาน)', team:''}, u, seen:!!u.registered_at}));
+  return rows;
+}
+
+// Admins read the full roster through a database function (phone/address); staff get names of their own team only
+async function fetchEmployees(){
+  if(isAdmin()){ const r = await sb.rpc('admin_employees'); if(!r.error) return r; }
+  return sb.from('employees').select('id,team,area,code,name,nickname,gender');
+}
 async function loadAllData(){
   try{
     const [{data: plans, error: e1}, {data: coupons, error: e2}, {data: employees, error: e3}, {data: types, error: e4}] = await Promise.all([
       sb.from('plans').select('*'),
       fetchAllCoupons(),
-      sb.from('employees').select('*'),
+      fetchEmployees(),
       sb.from('coupon_types').select('*'),
     ]);
     if(e1||e2||e3||e4){ console.error(e1,e2,e3,e4); showToast('เชื่อมต่อฐานข้อมูลไม่สำเร็จ ลองรีเฟรชหน้าใหม่'); return; }
@@ -435,7 +609,8 @@ async function refreshCurrentPlan(){
 }
 function goHome(){ state.view='home'; state.currentPlanId=null; state.planData=null; render(); }
 function goHelp(){ state.view='help'; render(); }
-function openModal(name){ state.modal=name; state.modalError=''; state.modalTab='single'; state.destroyPhoto=null;
+function openModal(name){ if(ADMIN_MODALS.has(name) && !isAdmin()){ showToast('เมนูนี้สำหรับแอดมินเท่านั้น'); return; }
+  state.modal=name; state.modalError=''; state.modalTab='single'; state.destroyPhoto=null;
   if(name==='settingsTypes'){ state.typeEditRows = state.couponTypes.map(t=>({...t})); }
   if(name==='importEmployees'){ state.employeeListFilter=''; }
   if(name==='editPlan'){ const p=currentPlan(); state.editPlanTypeCustom = !!(p && !state.couponTypes.find(t=>t.name===p.taskType)); }
@@ -1428,6 +1603,7 @@ async function handleImportEmployeesFile(file){
 // last synced successfully and records the error for display in that dialog.
 async function syncEmployeesFromSheet(opts){
   opts = opts || {};
+  if(!isAdmin()) return;
   state.employeeSync = {...state.employeeSync, status:'syncing'};
   if(!opts.silent) render();
   try{
@@ -1512,8 +1688,35 @@ function exportAllPlansXlsx(){
 }
 
 /* ============ Render: shell ============ */
+function renderAuth(){
+  const eye = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const admin = state.authAdmin;
+  return `<div class="auth-wrap"><div class="auth-card">
+    <div class="masthead"><div class="masthead-row"><div class="brand-title">
+      <div class="brand-mark-wrap"><div class="brand-mark"><span class="c">C</span><span class="j">J</span><span class="x">X</span></div><div class="brand-mark-rule"></div></div>
+      <div><h1>สมุดเบิกคูปอง</h1><div class="sub">Coupon Ownership Ledger</div></div>
+    </div></div></div>
+    <form class="auth-panel" id="auth-form" novalidate>
+      <h2>เข้าสู่ระบบ</h2>
+      <p class="lede">${admin ? 'บัญชีแอดมิน: ใส่รหัส 4 หลัก ครั้งแรกใส่ '+ADMIN_START_PIN+' แล้วระบบจะให้ตั้งรหัสใหม่ของคุณเอง' : 'กรอกรหัสพนักงานของคุณ จะเห็นเฉพาะแผนงานของทีมคุณ'}</p>
+      <div class="field"><label for="a-code">รหัสพนักงาน</label><input id="a-code" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" value="${escapeHtml(state.authCode||'')}" ${state.authBusy?'disabled':''}></div>
+      ${admin ? `<div class="field"><label for="a-pw">รหัสแอดมิน (ตัวเลข 4 หลัก)</label><div class="pw"><input id="a-pw" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="current-password" ${state.authBusy?'disabled':''}><button type="button" class="pw-eye" data-act="togglePw" aria-label="แสดงหรือซ่อนรหัส">${eye}</button></div></div>` : ''}
+      ${state.authError ? `<div class="modal-error" role="alert">${escapeHtml(state.authError)}</div>` : ''}
+      <button class="btn btn-claim btn-full" type="submit" ${state.authBusy?'disabled':''}>${state.authBusy ? 'กำลังตรวจสอบ…' : 'เข้าสู่ระบบ'}</button>
+      <div class="auth-hint"><button type="button" class="link-btn" data-act="authAdmin">${admin ? 'ฉันเป็นพนักงาน เข้าด้วยรหัสพนักงานอย่างเดียว' : 'ฉันเป็นแอดมิน (ใช้รหัส 4 หลัก)'}</button><br>ไม่พบรหัสของคุณ? ตรวจว่าชื่ออยู่ในรายชื่อพนักงานทีมกิจ หรือแจ้งแอดมิน</div>
+      ${window.__DEMO_HINT ? `<div class="auth-hint" style="background:var(--brand-blue-soft);color:var(--brand-blue);">${window.__DEMO_HINT}</div>` : ''}
+    </form>
+  </div></div>`;
+}
 function render(){
   const app = document.getElementById('app');
+  if(!state.authReady){ app.innerHTML = '<div class="auth-wrap"><div class="auth-card"><div class="auth-panel" style="border-top:3px solid var(--ink);border-radius:var(--radius);text-align:center;color:var(--ink-soft);">กำลังตรวจสอบการเข้าสู่ระบบ…</div></div></div>'; return; }
+  if(!state.auth){
+    app.innerHTML = renderAuth(); attachHandlers();
+    const f = document.getElementById(state.authCode && state.authAdmin ? 'a-pw' : 'a-code'); if(f && !state.authBusy) f.focus();
+    return;
+  }
+  if(state.auth.must_change){ app.innerHTML = renderMustChange(); attachHandlers(); const m=document.getElementById('m-pin'); if(m && !state.authBusy) m.focus(); return; }
   app.innerHTML = `
     <div class="masthead"><div class="masthead-row">
       <div class="brand-title">
@@ -1521,17 +1724,23 @@ function render(){
         <div><h1>สมุดเบิกคูปอง</h1><div class="sub">Coupon Ownership Ledger</div></div>
       </div>
       <div class="masthead-actions">
-        <button class="btn btn-sm btn-ghost" data-act="goHelp">📘 คู่มือการใช้งาน</button>
-        ${state.view==='home' ? `
-          <button class="btn btn-sm btn-ghost" data-act="importEmployees">รายชื่อพนักงาน</button>
-          <button class="btn btn-sm btn-ghost" data-act="settingsTypes">ตั้งค่าประเภทงาน</button>
-          ${state.plans.length>0 ? `<button class="btn btn-sm btn-ghost" data-act="cleanupOldPlans">จัดเก็บงานที่จบ + ลบงานที่ยังไม่เริ่ม</button>` : ''}
-          ${state.plans.length>0 ? `<button class="btn btn-sm btn-ghost" data-act="resetPlans" style="color:var(--brand-red);">ล้างแผนงานทั้งหมด</button>` : ''}
-        ` : ''}
+        <div class="who"><span class="who-name">${escapeHtml(state.auth.name||state.auth.code)}</span>${isAdmin() ? '<span class="chip chip-admin">แอดมิน</span>' : (state.auth.team ? `<span class="chip chip-team">${escapeHtml(state.auth.team)}</span>` : '')}</div>
+        <button class="btn btn-sm" data-act="logout">ออกจากระบบ</button>
       </div>
     </div></div>
-    ${state.view==='home' ? `<div class="crumbs">แผนงานทั้งหมด (${state.plans.filter(p=>!p.archived).length})</div>` : (state.view==='plan' ? renderCrumbsPlan() : `<div class="crumbs"><a data-act="home">แผนงานทั้งหมด</a> / คู่มือการใช้งาน</div>`)}
-    ${state.view==='home' ? renderHome() : (state.view==='plan' ? renderPlan() : renderHelp())}
+    <div class="nav-row">
+      <button class="btn btn-sm" data-act="goHelp">คู่มือการใช้งาน</button>
+      ${isAdmin() ? '<button class="btn btn-sm" data-act="changePw">เปลี่ยนรหัสแอดมิน</button>' : ''}
+      ${isAdmin() ? `<button class="btn btn-sm ${state.view==='users'?'on':''}" data-act="goUsers">ผู้ใช้งาน</button>` : ''}
+      ${state.view==='home' && isAdmin() ? `
+        <button class="btn btn-sm" data-act="importEmployees">รายชื่อพนักงาน</button>
+        <button class="btn btn-sm" data-act="settingsTypes">ตั้งค่าประเภทงาน</button>
+        ${state.plans.length>0 ? `<button class="btn btn-sm" data-act="cleanupOldPlans">จัดเก็บงานที่จบ + ลบงานที่ยังไม่เริ่ม</button>` : ''}
+        ${state.plans.length>0 ? `<button class="btn btn-sm nav-danger" data-act="resetPlans">ล้างแผนงานทั้งหมด</button>` : ''}
+      ` : ''}
+    </div>
+    ${state.view==='home' ? `<div class="crumbs">${isAdmin() ? 'แผนงานทั้งหมด' : 'แผนงานของทีม '+escapeHtml(state.auth.team||'-')} (${homePlans().filter(p=>!p.archived).length})</div>` : (state.view==='plan' ? renderCrumbsPlan() : `<div class="crumbs"><a data-act="home">แผนงานทั้งหมด</a> / ${state.view==='users' ? 'ผู้ใช้งาน' : 'คู่มือการใช้งาน'}</div>`)}
+    ${state.view==='home' ? renderHome() : (state.view==='plan' ? renderPlan() : (state.view==='users' && isAdmin() ? renderUsers() : renderHelp()))}
     ${renderModal()}
     ${state.viewPhotoUrl ? `<div class="overlay" data-act="closePhoto"><div class="photo-lightbox"><img src="${state.viewPhotoUrl}"></div></div>` : ''}
     <div class="mobile-nav">
@@ -1561,17 +1770,44 @@ async function drawCouponCanvases(){
 }
 function renderCrumbsPlan(){ const plan=currentPlan(); return `<div class="crumbs"><a data-act="home">แผนงานทั้งหมด</a> / ${escapeHtml(plan.name)}</div>`; }
 
+/* ============ Render: users (admin) ============ */
+function renderUsers(){
+  const f = state.userFilter, all = usersRows();
+  const q = (f.search||'').trim().toLowerCase();
+  const list = all.filter(r => (!f.team || r.e.team===f.team) && (!f.status || (f.status==='seen') === r.seen)
+    && (!q || [r.e.nickname, r.e.name, r.code, r.e.team].some(v=>String(v||'').toLowerCase().includes(q))))
+    .sort((a,b)=> String(a.e.team||'~').localeCompare(String(b.e.team||'~')) || String(a.e.nickname||'').localeCompare(String(b.e.nickname||'')));
+  const teams = [...new Set(all.map(r=>r.e.team).filter(Boolean))].sort();
+  const seenN = all.filter(r=>r.seen).length;
+  return `
+    <div class="panel">
+      <div class="users-bar"><div class="users-sum"><span><b>${seenN}</b>เคยเข้าระบบแล้ว</span><span><b>${all.length-seenN}</b>ยังไม่เคยเข้า</span></div></div>
+      <div class="modal-note" style="margin:0 0 12px;">พนักงานเข้าด้วยรหัสพนักงานตามรายชื่อ Google Sheet เห็นเฉพาะแผนงานของทีมตัวเอง ทำได้แค่เบิกและพิมพ์ ตัดสิทธิ์พนักงานที่ออกแล้วด้วยการลบชื่อออกจากชีต (ซิงค์แล้วเข้าไม่ได้ทันที)</div>
+      <div class="filters">
+        <input type="text" placeholder="ค้นหาชื่อ / รหัส / ทีม..." value="${escapeHtml(f.search)}" data-act="userSearch">
+        <select data-act="userTeam"><option value="">ทุกทีม</option>${teams.map(t=>`<option value="${escapeHtml(t)}" ${f.team===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}</select>
+        <select data-act="userStatus"><option value="">ทุกสถานะ</option><option value="seen" ${f.status==='seen'?'selected':''}>เคยเข้าระบบแล้ว</option><option value="new" ${f.status==='new'?'selected':''}>ยังไม่เคยเข้า</option></select>
+      </div>
+      <div class="u-list">${state.usersBusy && !state.appUsers.length ? '<div class="empty-row" style="padding:18px 0;">กำลังโหลด…</div>' : (list.length ? list.map(r=>`
+        <div class="u-row">
+          <div class="u-who"><b>${escapeHtml(r.e.nickname||r.e.name||r.code)}</b>${r.e.nickname&&r.e.name ? ` <span>${escapeHtml(r.e.name)}</span>` : ''}${r.u&&r.u.role==='admin'?' <span class="chip chip-admin">แอดมิน</span>':''}<div class="u-sub">${escapeHtml(r.code)} · ${escapeHtml(r.e.team||'ไม่มีทีม')}</div></div>
+          <div class="u-st">${r.seen ? '<span class="chip chip-give">เคยเข้าระบบ</span>' : '<span class="chip chip-type">ยังไม่เคยเข้า</span>'}</div>
+        </div>`).join('') : '<div class="empty-row" style="padding:18px 0;">ไม่พบรายชื่อที่ตรงกับตัวกรอง</div>')}</div>
+    </div>`;
+}
+
 /* ============ Render: help page ============ */
 function renderHelp(){
   return `
     <div class="help-hero">📘 คู่มือนี้สำหรับพนักงานหน้างาน อ่านเพื่อใช้ระบบเบิก-โอน-คืน-ทำลายคูปองให้ถูกต้อง</div>
     <div class="panel">
+      <div class="help-step"><div class="num">0</div><div><h4>เข้าสู่ระบบ</h4><p>พิมพ์รหัสพนักงานของตัวเองแล้วกดเข้าสู่ระบบ ไม่ต้องใช้รหัสผ่าน คุณจะเห็นเฉพาะแผนงานของทีมตัวเอง และทำได้เฉพาะ เบิก กับ พิมพ์คูปอง ทุกรายการจะบันทึกรหัสของคุณไว้ในประวัติ ห้ามใช้รหัสของคนอื่นเข้าแทน แอดมินเข้าด้วยรหัส 4 หลัก (ครั้งแรกใช้ 1234 แล้วต้องตั้งรหัสใหม่)</p></div></div>
       <div class="help-step"><div class="num">1</div><div><h4>เบิกคูปอง</h4><p>เข้าไปในแผนงานของทีมตัวเอง กดปุ่ม "เบิกคูปอง" เลือกชื่อตัวเองจากรายชื่อทีม (หรือกด "พิมพ์เอง" ถ้าไม่เจอชื่อ) ใส่จำนวนที่จะเบิก ระบบจะให้เลขต่อจากคนก่อนหน้าอัตโนมัติ ไม่ต้องนับเอง</p></div></div>
       <div class="help-step"><div class="num">1.1</div><div><h4>พิมพ์คูปอง</h4><p>เมื่อแผนงานขึ้นว่า "พิมพ์คูปองได้" กดปุ่ม "พิมพ์คูปอง" เลือกพิมพ์ทั้งแผนงานหรือเฉพาะช่วงเบอร์ แล้วกดดาวน์โหลด ระบบจะสแกนตรวจบาร์โค้ดทุกใบก่อนให้ไฟล์ PDF คูปองใบยาว 10 ใบต่อ 1 หน้า A4 สั่งพิมพ์ขนาด 100% (Actual size) ตัดตามเส้นประ</p></div></div>
-      <div class="help-step"><div class="num">2</div><div><h4>โอน / สลับคูปอง</h4><p>ถ้าจะยกเลขที่เบิกไปแล้วให้เพื่อนในทีม กดปุ่ม "โอน/สลับ" เลือกช่วงจากรายการที่เบิกแล้ว แล้วเลือกคนที่จะรับ</p></div></div>
-      <div class="help-step"><div class="num">3</div><div><h4>คืนคูปอง</h4><p>ถ้าเบิกมาแล้วแจกไม่หมด ให้กด "คืนคูปอง" เลือกช่วงที่จะคืนกลับกองกลาง เพื่อให้คนอื่นเบิกต่อได้หรือรอทำลายในวันสุดท้าย</p></div></div>
-      <div class="help-step"><div class="num">4</div><div><h4>ขอคูปองเพิ่ม</h4><p>ถ้าคูปองในแผนงานหมดแต่ยังแจกไม่พอ กดปุ่ม "ขอคูปองเพิ่ม" ใส่จำนวนที่ต้องการ ระบบจะขยายเลขต่อให้อัตโนมัติ</p></div></div>
-      <div class="help-step"><div class="num destroy">5</div><div><h4>ทำลายคูปอง (วันสุดท้ายของงานเท่านั้น)</h4><p>เมื่อถึงวันสุดท้ายของงานและมีคูปองเหลือ ต้องกด "ทำลายคูปองที่เหลือทั้งหมด" ระบบจะรวมคูปองที่เหลือทุกช่วงมาทำลายในครั้งเดียว <b>ต้องถ่ายรูปตอนทำลายแนบเป็นหลักฐานเสมอ</b> ห้ามมีคูปองเหลือค้างในระบบหลังจบงาน ปุ่มนี้จะกดไม่ได้ถ้ายังไม่ถึงวันสุดท้าย</p></div></div>
+      <div class="help-step"><div class="num">2</div><div><h4>โอน / สลับคูปอง (แอดมิน)</h4><p>ถ้าจะยกเลขที่เบิกไปแล้วให้เพื่อนในทีม กดปุ่ม "โอน/สลับ" เลือกช่วงจากรายการที่เบิกแล้ว แล้วเลือกคนที่จะรับ</p></div></div>
+      <div class="help-step"><div class="num">3</div><div><h4>คืนคูปอง (แอดมิน)</h4><p>ถ้าเบิกมาแล้วแจกไม่หมด ให้กด "คืนคูปอง" เลือกช่วงที่จะคืนกลับกองกลาง เพื่อให้คนอื่นเบิกต่อได้หรือรอทำลายในวันสุดท้าย</p></div></div>
+      <div class="help-step"><div class="num">4</div><div><h4>ขอคูปองเพิ่ม (แอดมิน)</h4><p>ถ้าคูปองในแผนงานหมดแต่ยังแจกไม่พอ กดปุ่ม "ขอคูปองเพิ่ม" ใส่จำนวนที่ต้องการ ระบบจะขยายเลขต่อให้อัตโนมัติ</p></div></div>
+      <div class="help-step"><div class="num destroy">5</div><div><h4>ทำลายคูปอง (แอดมิน · วันสุดท้ายของงานเท่านั้น)</h4><p>เมื่อถึงวันสุดท้ายของงานและมีคูปองเหลือ ต้องกด "ทำลายคูปองที่เหลือทั้งหมด" ระบบจะรวมคูปองที่เหลือทุกช่วงมาทำลายในครั้งเดียว <b>ต้องถ่ายรูปตอนทำลายแนบเป็นหลักฐานเสมอ</b> ห้ามมีคูปองเหลือค้างในระบบหลังจบงาน ปุ่มนี้จะกดไม่ได้ถ้ายังไม่ถึงวันสุดท้าย</p></div></div>
       <div class="help-step"><div class="num">6</div><div><h4>ดูประวัติ / ส่งออกข้อมูล</h4><p>แท็บ "ประวัติธุรกรรม" ในแต่ละแผนงานจะเก็บทุกการเบิก โอน คืน ขยาย ทำลาย ไว้ตรวจสอบย้อนหลังได้ กดปุ่ม "ส่งออก Excel" เพื่อดาวน์โหลดไปส่งหัวหน้างานได้ทันที</p></div></div>
       <div class="help-step"><div class="num">A</div><div><h4>สำหรับแอดมิน: ใส่เลขคูปองจาก nest</h4><p>เปิดแผนงาน กด "อัปโหลดเลขจาก nest" แล้วเลือกไฟล์ VC…xlsx ระบบตรวจรหัสสาขา จำนวน เลขซ้ำ (รวมถึงซ้ำกับแผนงานอื่น) ก่อนให้บันทึก เบอร์ #1, #2 … ในสมุดจะผูกกับ Running No. ในไฟล์ ถ้าแผนงานมีเลขอยู่แล้ว เลือก "เพิ่มต่อจากเดิม" (เลขใหม่ต่อท้ายเบอร์เดิม เช่น 51–100) หรือ "แทนที่ทั้งหมด"</p></div></div>
       <div class="help-step"><div class="num">?</div><div><h4>ทำไมกดปุ่มไม่ได้</h4><p>ถ้าปุ่มเบิก/โอน/คืน กดไม่ได้ แสดงว่าแผนงานนี้ยังไม่ถูกกำหนดทีม ให้แจ้งหัวหน้างานหรือแอดมินกำหนดทีมก่อน ส่วนปุ่มทำลายจะกดได้เฉพาะวันสุดท้ายของงานเท่านั้น</p></div></div>
@@ -1580,11 +1816,14 @@ function renderHelp(){
 }
 
 /* ============ Render: home ============ */
+// Staff only ever see their own team's plans (the database enforces it too)
+function homePlans(){ return isAdmin() ? state.plans : state.plans.filter(p=>p.team && p.team===state.auth.team); }
 function renderHome(){
   const f = state.homeFilter;
-  const types = [...new Set(state.plans.map(p=>p.taskType))].sort();
+  const mine = homePlans();
+  const types = [...new Set(mine.map(p=>p.taskType))].sort();
   const teams = teamsList();
-  let list = state.plans.filter(p=>!p.archived);
+  let list = mine.filter(p=>!p.archived);
   if(f.search){ const s=f.search.toLowerCase(); list = list.filter(p => (p.name+p.branchCode+p.province).toLowerCase().includes(s)); }
   if(f.type) list = list.filter(p=>p.taskType===f.type);
   if(f.status!=='all') list = list.filter(p=>planStatus(p)===f.status);
@@ -1598,7 +1837,7 @@ function renderHome(){
     if(ca!==cb) return ca-cb; // closed plans sink to the bottom
     return (a.startDate||'9999').localeCompare(b.startDate||'9999');
   });
-  const archived = state.plans.filter(p=>p.archived);
+  const archived = isAdmin() ? state.plans.filter(p=>p.archived) : [];
 
   const folder = p => {
     const status = planStatus(p);
@@ -1620,7 +1859,7 @@ function renderHome(){
       <div class="bar"><div class="bar-fill ${pct>=100?'full':''}" style="width:${pct}%"></div></div>
       <div class="count-line">เบิกแล้ว ${p.assignedCount||0} / ${p.totalCoupons} ใบ${p.destroyedCount ? ` · ทำลายแล้ว ${p.destroyedCount} ใบ` : ''}</div>
       <div class="count-line">${p.voucherCount ? `<span class="chip chip-give">พิมพ์คูปองได้</span>` : `<span class="chip chip-type">ยังไม่มีเลขคูปอง</span>`}</div>
-      <div style="margin-top:8px;"><button class="btn btn-sm btn-ghost" data-act="archive" data-id="${p.id}">${p.archived?'กู้คืน':'เก็บถาวร'}</button></div>
+      ${isAdmin() ? `<div style="margin-top:8px;"><button class="btn btn-sm btn-ghost" data-act="archive" data-id="${p.id}">${p.archived?'กู้คืน':'เก็บถาวร'}</button></div>` : ''}
     </div>`;
   };
 
@@ -1628,19 +1867,21 @@ function renderHome(){
     <div class="filters">
       <input type="text" placeholder="ค้นหาสาขา / รหัส / จังหวัด..." value="${escapeHtml(f.search)}" data-act="homeSearch">
       <select data-act="homeType"><option value="">ทุกประเภทงาน</option>${types.map(t=>`<option value="${escapeHtml(t)}" ${f.type===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}</select>
-      <select data-act="homeTeam"><option value="">ทุกทีม</option>${teams.map(t=>`<option value="${escapeHtml(t)}" ${f.team===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}</select>
+      ${isAdmin() ? `<select data-act="homeTeam"><option value="">ทุกทีม</option>${teams.map(t=>`<option value="${escapeHtml(t)}" ${f.team===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}</select>` : ''}
       <select data-act="homeStatus">
         <option value="all" ${f.status==='all'?'selected':''}>ทุกสถานะ</option>
         <option value="upcoming" ${f.status==='upcoming'?'selected':''}>ยังไม่เริ่ม</option>
         <option value="active" ${f.status==='active'?'selected':''}>กำลังดำเนินการ</option>
         <option value="done" ${f.status==='done'?'selected':''}>จบแล้ว</option>
       </select>
-      <button class="btn btn-sm btn-ghost" data-act="exportAllPlans">ส่งออก Excel ทั้งหมด</button>
+      ${isAdmin() ? '<button class="btn btn-sm btn-ghost" data-act="exportAllPlans">ส่งออก Excel ทั้งหมด</button>' : ''}
     </div>
-    <div class="folder-grid">${list.map(folder).join('')}<div class="new-folder" data-act="newPlan">+ สร้าง / นำเข้าแผนงาน</div></div>
+    <div class="folder-grid">${list.map(folder).join('')}${isAdmin() ? '<div class="new-folder" data-act="newPlan">+ สร้าง / นำเข้าแผนงาน</div>' : ''}</div>
     ${archived.length ? `<div style="margin-top:26px;"><div class="panel-title" style="border-bottom:2px solid var(--line); padding-bottom:8px;">แผนงานที่เก็บถาวร (${archived.length})</div><div class="folder-grid" style="margin-top:12px;">${archived.map(folder).join('')}</div></div>` : ''}
-    ${state.plans.length===0 ? `<div class="empty-state"><div class="big">ยังไม่มีแผนงาน</div><div>สร้างแผนงานแรก หรือนำเข้าจากไฟล์ Excel</div></div>` : ''}
-    ${list.length===0 && state.plans.length>0 ? `<div class="empty-state">ไม่พบแผนงานที่ตรงกับตัวกรอง</div>` : ''}
+    ${isAdmin() && state.plans.length===0 ? `<div class="empty-state"><div class="big">ยังไม่มีแผนงาน</div><div>สร้างแผนงานแรก หรือนำเข้าจากไฟล์ Excel</div></div>` : ''}
+    ${!isAdmin() && !state.auth.team ? `<div class="empty-state"><div class="big">บัญชีนี้ยังไม่มีทีม</div><div>รหัสพนักงานของคุณยังไม่ถูกจัดเข้าทีมในรายชื่อพนักงาน แจ้งแอดมินให้ตรวจสอบ</div></div>` : ''}
+    ${!isAdmin() && state.auth.team && mine.length===0 ? `<div class="empty-state"><div class="big">ทีม ${escapeHtml(state.auth.team)} ยังไม่มีแผนงาน</div><div>เมื่อแอดมินกำหนดแผนงานให้ทีมแล้ว จะขึ้นที่หน้านี้</div></div>` : ''}
+    ${list.length===0 && mine.length>0 ? `<div class="empty-state">ไม่พบแผนงานที่ตรงกับตัวกรอง</div>` : ''}
   `;
 }
 
@@ -1681,7 +1922,7 @@ function renderPlan(){
       <td>${txRangeLabel(t)}</td>
       <td>${t.previousOwner ? escapeHtml(t.previousOwner) : '<span style="color:var(--ink-faint)">—</span>'}</td>
       <td>${t.newOwner ? escapeHtml(t.newOwner) : '<span style="color:var(--ink-faint)">—</span>'}</td>
-      <td>${t.count && t.actionType==='พิมพ์' ? `${t.count} ใบ ` : ''}${escapeHtml(t.note||'')} ${t.photo ? `<button type="button" class="link-btn" data-act="viewPhoto" data-photo-idx="${data.transactions.indexOf(t)}">ดูรูป</button>` : ''}</td>
+      <td>${t.count && t.actionType==='พิมพ์' ? `${t.count} ใบ ` : ''}${escapeHtml(t.note||'')}${t.actor ? ` <span style="color:var(--ink-faint);font-size:11px;">โดย ${escapeHtml(t.actor)}</span>` : ''} ${t.photo ? `<button type="button" class="link-btn" data-act="viewPhoto" data-photo-idx="${data.transactions.indexOf(t)}">ดูรูป</button>` : ''}</td>
     </tr>`).join('') : `<tr><td colspan="6" class="empty-row">ไม่พบรายการ</td></tr>`;
 
   let destroyBtn;
@@ -1695,18 +1936,18 @@ function renderPlan(){
       <div class="toolbar">
         <button class="btn btn-claim" data-act="claim" ${!plan.team?'disabled':''}>เบิกคูปอง</button>
         <button class="btn btn-print" data-act="printCoupons" ${!voucherCount?'disabled title="ยังไม่มีเลขคูปองจริง รอแอดมินอัปโหลดไฟล์จาก nest"':''}>พิมพ์คูปอง</button>
-        <button class="btn btn-transfer" data-act="transfer" ${!plan.team?'disabled':''}>โอน / สลับ</button>
+        ${isAdmin() ? `<button class="btn btn-transfer" data-act="transfer" ${!plan.team?'disabled':''}>โอน / สลับ</button>
         <button class="btn btn-return" data-act="returnCoupons" ${!plan.team?'disabled':''}>คืนคูปอง</button>
         <button class="btn btn-extend" data-act="extend">ขอคูปองเพิ่ม</button>
         <button class="btn btn-ghost" data-act="editPlan">แก้ไขแผนงาน</button>
-        ${destroyBtn}
+        ${destroyBtn}` : ''}
       </div>
     </div>
 
     ${remaining<=0 && (assignedCount+destroyedCount)>0 ? `<div class="closed-banner">✓ ปิดงานสมบูรณ์ — ไม่มีคูปองเหลือค้างในระบบ</div>` : ''}
 
-    ${plan.team && !state.editingTeam ? `<div class="team-banner assigned">ทีมที่รับผิดชอบ: <strong>${escapeHtml(plan.team)}</strong> <button class="link-btn" data-act="editTeam">เปลี่ยนทีม</button></div>` : ''}
-    ${(!plan.team || state.editingTeam) ? `
+    ${plan.team && !state.editingTeam ? `<div class="team-banner assigned">ทีมที่รับผิดชอบ: <strong>${escapeHtml(plan.team)}</strong> ${isAdmin() ? '<button class="link-btn" data-act="editTeam">เปลี่ยนทีม</button>' : ''}</div>` : ''}
+    ${isAdmin() && (!plan.team || state.editingTeam) ? `
       ${!plan.team ? `<div class="team-banner unassigned">ยังไม่ได้กำหนดทีมที่รับผิดชอบแผนงานนี้ — เลือกทีมก่อนจึงจะเบิก/โอน/คืนคูปองได้</div>` : ''}
       <div class="team-editor">
         ${!state.teamManual ? `
@@ -1773,7 +2014,7 @@ function renderVoucherPanel(plan, assignedCount, voucherCount){
           ${lastPrint ? `<div class="vp-stat"><b style="font-size:15px;">${escapeHtml(fmtDate(lastPrint.timestamp))}</b><span>พิมพ์ล่าสุด ${lastPrint.count||''} ใบ</span></div>` : ''}
         </div>
         ${!state.schemaReady ? `<div class="schema-warn">ฐานข้อมูลยังไม่รองรับเลขคูปอง — ${COUPON_SQL_HINT}</div>` : ''}
-        <div><button class="btn btn-sm btn-ghost" data-act="uploadVouchers">${voucherCount ? 'อัปโหลดเลขจาก nest ใหม่' : 'อัปโหลดเลขจาก nest (แอดมิน)'}</button></div>
+        ${isAdmin() ? `<div><button class="btn btn-sm btn-ghost" data-act="uploadVouchers">${voucherCount ? 'อัปโหลดเลขจาก nest' : 'อัปโหลดเลขจาก nest (แอดมิน)'}</button></div>` : ''}
       </div>
     </div>`;
 }
@@ -1982,6 +2223,18 @@ function renderModal(){
     </div></div>`;
   }
 
+  if(state.modal==='changePw'){
+    return `
+    <div class="overlay" data-act="overlay"><div class="modal" data-act="stop">
+      <h3>เปลี่ยนรหัสแอดมิน</h3>
+      <div class="modal-note" style="margin:0 0 12px;">บัญชีแอดมิน ${escapeHtml(state.auth.code)} · รหัสใหม่เป็นตัวเลข 4 หลัก</div>
+      <div class="field"><label for="f-newpw">รหัสใหม่</label><input type="password" id="f-newpw" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="new-password"></div>
+      <div class="field"><label for="f-newpw2">ยืนยันรหัสใหม่</label><input type="password" id="f-newpw2" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="new-password"></div>
+      ${state.modalError ? `<div class="modal-error" role="alert">${escapeHtml(state.modalError)}</div>` : ''}
+      <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ยกเลิก</button><button class="btn btn-claim" data-act="submitChangePw">บันทึกรหัสใหม่</button></div>
+    </div></div>`;
+  }
+
   if(state.modal==='uploadVouchers'){
     const imp = state.voucherImport;
     const existing = state.planData.coupons.filter(c=>c.voucher).length;
@@ -2105,9 +2358,18 @@ function renderModal(){
 /* ============ Event wiring ============ */
 function attachHandlers(){
   const app = document.getElementById('app');
+  app.onsubmit = (e) => { e.preventDefault(); if(state.authBusy) return; if(e.target.id==='auth-form') submitAuth(); if(e.target.id==='pin-form') submitMustChange(); };
   app.onclick = (e) => {
     const el = e.target.closest('[data-act]'); if(!el) return;
     const act = el.dataset.act;
+    if(act==='authAdmin'){ state.authAdmin=!state.authAdmin; state.authError=''; const c=document.getElementById('a-code'); if(c) state.authCode=normCode(c.value); render(); return; }
+    if(act==='togglePw'){ const box=el.closest('.pw'), i=box.querySelector('input'); const show=i.type==='password'; document.querySelectorAll('.auth-panel .pw input').forEach(x=>x.type=show?'text':'password'); return; }
+    if(!state.auth) return;
+    if(ADMIN_ACTS.has(act) && !isAdmin()){ showToast('เมนูนี้สำหรับแอดมินเท่านั้น'); return; }
+    if(act==='logout'){ logout(); return; }
+    if(act==='changePw'){ state.modal='changePw'; state.modalError=''; render(); return; }
+    if(act==='submitChangePw'){ submitChangePw(); return; }
+    if(act==='goUsers'){ goUsers(); return; }
     if(act==='overlay'){ closeModal(); return; }
     if(act==='closePhoto'){ state.viewPhotoUrl=null; render(); return; }
     if(act==='stop'){ e.stopPropagation(); return; }
@@ -2223,6 +2485,7 @@ function attachHandlers(){
     const el = e.target.closest('[data-act]'); if(!el) return;
     if(el.dataset.act==='filterName'){ state.historyFilterName = el.value; render(); refocus('input[data-act="filterName"]'); }
     if(el.dataset.act==='filterDate'){ state.historyFilterDate = el.value; render(); }
+    if(el.dataset.act==='userSearch'){ state.userFilter.search = el.value; render(); refocus('input[data-act="userSearch"]'); }
     if(el.dataset.act==='homeSearch'){ state.homeFilter.search = el.value; render(); refocus('input[data-act="homeSearch"]'); }
     if(el.dataset.act==='filterEmployeeList'){ state.employeeListFilter = el.value; render(); refocus('input[data-act="filterEmployeeList"]'); }
     // Fires on every keystroke AND on picking a <datalist> suggestion (both are 'input'
@@ -2242,6 +2505,8 @@ function attachHandlers(){
   app.onkeydown = (e) => { if(e.key==='Escape'){ if(state.viewPhotoUrl){ state.viewPhotoUrl=null; render(); } else if(state.modal){ closeModal(); } } };
   const typeSel = app.querySelector('select[data-act="homeType"]'); if(typeSel) typeSel.onchange = (e)=>{ state.homeFilter.type = e.target.value; render(); };
   const teamSel = app.querySelector('select[data-act="homeTeam"]'); if(teamSel) teamSel.onchange = (e)=>{ state.homeFilter.team = e.target.value; render(); };
+  const uTeam = app.querySelector('select[data-act="userTeam"]'); if(uTeam) uTeam.onchange = (e)=>{ state.userFilter.team = e.target.value; render(); };
+  const uStatus = app.querySelector('select[data-act="userStatus"]'); if(uStatus) uStatus.onchange = (e)=>{ state.userFilter.status = e.target.value; render(); };
   const statusSel = app.querySelector('select[data-act="homeStatus"]'); if(statusSel) statusSel.onchange = (e)=>{ state.homeFilter.status = e.target.value; render(); };
 }
 function refocus(sel){ const el=document.querySelector(sel); if(el){ const v=el.value; el.focus(); el.value=''; el.value=v; el.setSelectionRange(v.length,v.length); } }
