@@ -575,13 +575,13 @@ async function fetchEmployees(){
 }
 async function loadAllData(){
   try{
-    const [{data: plans, error: e1}, {data: coupons, error: e2}, {data: employees, error: e3}, {data: types, error: e4}] = await Promise.all([
+    const [{data: plans, error: e1}, {data: coupons, error: e2}, {data: employees, error: e3}, {data: types, error: e4}] = await withTimeout(Promise.all([
       sb.from('plans').select('*'),
       fetchAllCoupons(),
       fetchEmployees(),
       sb.from('coupon_types').select('*'),
-    ]);
-    if(e1||e2||e3||e4){ console.error(e1,e2,e3,e4); showToast('เชื่อมต่อฐานข้อมูลไม่สำเร็จ ลองรีเฟรชหน้าใหม่'); return; }
+    ]), 25000, 'อ่านข้อมูลแผนงาน');
+    if(e1||e2||e3||e4){ const er=e1||e2||e3||e4; console.error(e1,e2,e3,e4); showToast('อ่านข้อมูลไม่สำเร็จ: '+(er.message||er.code||'ไม่ทราบสาเหตุ')); return; }
     const counts = {};
     (coupons||[]).forEach(c=>{
       if(!counts[c.plan_id]) counts[c.plan_id] = {assigned:0, destroyed:0};
@@ -592,7 +592,7 @@ async function loadAllData(){
     state.employees = (employees||[]).map(e=>({team:e.team, area:e.area, code:e.code, name:e.name, nickname:e.nickname, gender:e.gender, address:e.address, coordinates:e.coordinates, phone:e.phone}));
     state.couponTypes = (types||[]).map(t=>({name:t.name, count:t.count}));
   } catch(err){
-    console.error(err); showToast('เชื่อมต่อฐานข้อมูลไม่สำเร็จ ลองรีเฟรชหน้าใหม่');
+    console.error(err); showToast('อ่านข้อมูลไม่สำเร็จ: '+(err&&err.message||err));
   }
 }
 
