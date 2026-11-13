@@ -425,7 +425,7 @@ const PIN_RE = /^\d{4}$/;
 const normCode = v => String(v||'').trim().toLowerCase().replace(/\s+/g,'');
 const isAdmin = () => !!(state.auth && state.auth.role==='admin' && !state.auth.must_change);
 const ADMIN_MODALS = new Set(['newPlan','transfer','returnCoupons','destroyCoupons','extend','editPlan','settingsTypes','importEmployees','uploadVouchers']);
-const ADMIN_ACTS = new Set(['archive','deletePlan','cleanupOldPlans','resetPlans','editTeam','submitAssignTeam','syncEmployeesNow','goUsers','exportAllPlans','changePw','submitChangePw','releaseClash']);
+const ADMIN_ACTS = new Set(['archive','deletePlan','cleanupOldPlans','resetPlans','editTeam','submitAssignTeam','syncEmployeesNow','goUsers','exportAllPlans','changePw','submitChangePw','releaseClash','removeVouchers']);
 const SETUP_MISSING_MSG = 'ระบบล็อกอินยังไม่ถูกติดตั้งในฐานข้อมูล ให้แอดมินรันไฟล์ supabase-auth-1-setup.sql ใน Supabase ก่อน';
 
 function resetAppState(){
@@ -1218,6 +1218,26 @@ function vcApplyMode(imp, plan){
   imp.append=append; imp.checks=checks;
 }
 // Admin: the same vouchers were uploaded to the wrong plan earlier — free them there so they can be used here
+// Admin: pull every real voucher number out of the open plan (wrong upload / cancelled job). Ledger slots, owners and history stay.
+async function removeVouchers(){
+  if(!isAdmin()) return;
+  const plan=currentPlan(); if(!plan) return;
+  const n=state.planData.coupons.filter(c=>c.voucher).length; if(!n) return;
+  const owned=state.planData.coupons.filter(c=>c.voucher && c.owner).length;
+  if(!confirm(`ถอนเลขคูปองจริง ${n} ใบออกจากแผน "${plan.name}"?
+
+${owned?`มี ${owned} ใบที่มีคนเบิกไปแล้ว (ชื่อผู้เบิกยังอยู่)
+`:''}ช่องเบอร์และประวัติไม่หาย แต่แผนนี้จะพิมพ์คูปองไม่ได้จนกว่าจะอัปโหลดเลขใหม่
+เลขที่ถอนแล้วนำไปใช้กับแผนอื่นได้`)) return;
+  try{
+    const {error}=await sb.from('coupons').update({voucher:null}).eq('plan_id',plan.id).not('voucher','is',null); if(error) throw error;
+    await sb.from('plans').update({voucher_file:null, voucher_uploaded_at:null}).eq('id',plan.id);
+    await sb.from('transactions').insert({plan_id:plan.id, action_type:'ใส่เลขคูปอง', count:0, previous_owner:null, new_owner:null, note:`ถอนเลขคูปอง ${n} ใบออก`});
+    Object.assign(plan,{voucherFile:null, voucherUploadedAt:null});
+    await refreshCurrentPlan(); render();
+    showToast(`ถอนเลขคูปอง ${n} ใบออกจากแผนแล้ว`);
+  }catch(err){ console.error(err); showToast('ถอนเลขไม่สำเร็จ: '+(err.message||err)); }
+}
 async function releaseClash(planId){
   const imp=state.voucherImport; if(!imp || imp.status!=='ready' || !isAdmin()) return;
   const c=(imp.clash||[]).find(x=>x.id===planId); if(!c) return;
@@ -2074,7 +2094,7 @@ function renderVoucherPanel(plan, assignedCount, voucherCount){
           ${lastPrint ? `<div class="vp-stat"><b style="font-size:15px;">${escapeHtml(fmtDate(lastPrint.timestamp))}</b><span>พิมพ์ล่าสุด ${lastPrint.count||''} ใบ</span></div>` : ''}
         </div>
         ${!state.schemaReady ? `<div class="schema-warn">ฐานข้อมูลยังไม่รองรับเลขคูปอง — ${COUPON_SQL_HINT}</div>` : ''}
-        ${isAdmin() ? `<div><button class="btn btn-sm btn-ghost" data-act="uploadVouchers">${voucherCount ? 'อัปโหลดเลขจาก nest' : 'อัปโหลดเลขจาก nest (แอดมิน)'}</button></div>` : ''}
+        ${isAdmin() ? `<div><button class="btn btn-sm btn-ghost" data-act="uploadVouchers">${voucherCount ? 'อัปโหลดเลขจาก nest' : 'อัปโหลดเลขจาก nest (แอดมิน)'}</button>${voucherCount ? ` <button class="btn btn-sm btn-destroy" data-act="removeVouchers">ถอนเลขคูปองออก (${voucherCount} ใบ)</button>` : ''}</div>` : ''}
       </div>
     </div>`;
 }
@@ -2507,6 +2527,7 @@ function attachHandlers(){
     }
     if(act==='uploadVouchers'){ state.voucherImport=null; openModal('uploadVouchers'); return; }
     if(act==='vcMode'){ const imp=state.voucherImport; if(imp&&imp.status==='ready'){ imp.mode=el.dataset.mode; vcApplyMode(imp,currentPlan()); } else state.vcModePref=el.dataset.mode; render(); return; }
+    if(act==='removeVouchers'){ removeVouchers(); return; }
     if(act==='releaseClash'){ releaseClash(el.dataset.planId); return; }
     if(act==='submitVouchers'){ if(!el.disabled) confirmVoucherImport(); return; }
     if(act==='printCoupons'){ if(el.disabled) return; state.printOpts={scope:'all', from:'', to:''}; openModal('printCoupons'); return; }
