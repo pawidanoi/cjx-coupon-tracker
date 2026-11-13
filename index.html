@@ -425,7 +425,7 @@ const PIN_RE = /^\d{4}$/;
 const normCode = v => String(v||'').trim().toLowerCase().replace(/\s+/g,'');
 const isAdmin = () => !!(state.auth && state.auth.role==='admin' && !state.auth.must_change);
 const ADMIN_MODALS = new Set(['newPlan','transfer','returnCoupons','destroyCoupons','extend','editPlan','settingsTypes','importEmployees','uploadVouchers']);
-const ADMIN_ACTS = new Set(['archive','deletePlan','cleanupOldPlans','resetPlans','editTeam','submitAssignTeam','syncEmployeesNow','goUsers','exportAllPlans','changePw','submitChangePw']);
+const ADMIN_ACTS = new Set(['archive','deletePlan','cleanupOldPlans','resetPlans','editTeam','submitAssignTeam','syncEmployeesNow','goUsers','exportAllPlans','changePw','submitChangePw','releaseClash']);
 const SETUP_MISSING_MSG = 'ระบบล็อกอินยังไม่ถูกติดตั้งในฐานข้อมูล ให้แอดมินรันไฟล์ supabase-auth-1-setup.sql ใน Supabase ก่อน';
 
 function resetAppState(){
@@ -1163,7 +1163,7 @@ async function handleVoucherFile(file){
     rows.slice(hi+1).forEach((r,i)=>{ const v=String(r[cV]||'').replace(/\s/g,''); if(!v) return; items.push({no: parseInt(r[cRun],10) || (items.length+1), v}); if(cStore>=0 && r[cStore]) stores.add(String(r[cStore]).trim().toUpperCase()); });
     if(!items.length) throw new Error('ไม่พบเลขคูปองในไฟล์');
     const first=rows[hi+1]||[];
-    const imp={fileName:file.name, status:'ready', items, stores:[...stores], value:Number(first[cVal])||20, validFrom:cpParseDmy(first[cEf]), validTo:cpParseDmy(first[cXd]), checks:[]};
+    const imp={fileName:file.name, file, status:'ready', items, stores:[...stores], value:Number(first[cVal])||20, validFrom:cpParseDmy(first[cEf]), validTo:cpParseDmy(first[cXd]), checks:[]};
     const nums=items.map(i=>i.v), dup=nums.length-new Set(nums).size, bad=nums.filter(v=>!/^\d{16}$/.test(v)).length;
     const noDup=items.length-new Set(items.map(i=>i.no)).size;
     imp.checks.push(dup ? {s:'n',t:`เลขคูปองซ้ำกันในไฟล์ ${dup} เลข`} : {s:'y',t:`เลขคูปองไม่ซ้ำกัน ${nums.length} เลข`});
@@ -1181,6 +1181,7 @@ async function handleVoucherFile(file){
       (data||[]).filter(d=>d.plan_id!==plan.id).forEach(d=>clash.set(d.plan_id,(clash.get(d.plan_id)||0)+1));
     }
     if(clash.size) imp.checks.push({s:'n',t:'เลขคูปองซ้ำกับแผนงานอื่น: '+[...clash].map(([id,n])=>`${(state.plans.find(p=>p.id===id)||{}).name||id} (${n} เลข)`).join(', ')});
+    imp.clash=[...clash].map(([id,n])=>({id, n, name:(state.plans.find(p=>p.id===id)||{}).name||id}));
     imp.baseChecks=imp.checks;
     imp.mode=state.planData.coupons.some(c=>c.voucher) ? 'append' : 'replace';
     vcApplyMode(imp, plan);
@@ -1215,6 +1216,25 @@ function vcApplyMode(imp, plan){
   }
   if(append && maxNo>plan.totalCoupons) checks.push({s:'w',t:`เบอร์สุดท้าย #${maxNo} เกินช่องที่แผนงานมี (${plan.totalCoupons}) ระบบจะขยายให้อัตโนมัติ`});
   imp.append=append; imp.checks=checks;
+}
+// Admin: the same vouchers were uploaded to the wrong plan earlier — free them there so they can be used here
+async function releaseClash(planId){
+  const imp=state.voucherImport; if(!imp || imp.status!=='ready' || !isAdmin()) return;
+  const c=(imp.clash||[]).find(x=>x.id===planId); if(!c) return;
+  if(!confirm(`ปลดเลขคูปอง ${c.n} เลขออกจากแผน "${c.name}"?
+
+แผนนั้นจะเหลือช่องเบอร์ว่าง (ไม่มีเลขจริง) พิมพ์คูปองของเลขเหล่านี้ไม่ได้อีก
+เลขจะถูกย้ายมาใช้กับแผนนี้ตอนที่คุณกด "บันทึกเลขคูปอง"`)) return;
+  const file=imp.file; imp.status='reading'; render();
+  try{
+    const nums=imp.items.map(i=>i.v);
+    for(let i=0;i<nums.length;i+=150){
+      const {error}=await sb.from('coupons').update({voucher:null}).eq('plan_id',planId).in('voucher', nums.slice(i,i+150)); if(error) throw error;
+    }
+    await sb.from('transactions').insert({plan_id:planId, action_type:'ใส่เลขคูปอง', count:0, previous_owner:null, new_owner:null, note:`ปลดเลขคูปอง ${c.n} เลขออก (อัปโหลดผิดแผน ย้ายไปแผน ${currentPlan().name})`});
+    showToast(`ปลดเลขออกจาก ${c.name} แล้ว`);
+    await handleVoucherFile(file);
+  }catch(err){ console.error(err); imp.status='ready'; state.modalError='ปลดเลขไม่สำเร็จ: '+(err.message||err); render(); }
 }
 async function confirmVoucherImport(){
   const plan=currentPlan(), imp=state.voucherImport;
@@ -2297,7 +2317,8 @@ function renderModal(){
           <div><b>${escapeHtml(thRange(cpDate(imp.validFrom), cpDate(imp.validTo))||'-')}</b>วันที่ใช้ได้</div>
           <div><b>${escapeHtml(imp.stores.join(', ')||'-')}</b>รหัสสาขาในไฟล์</div>
         </div>
-        <div class="check-list">${imp.checks.map(c=>`<div><span class="${c.s}">${mark[c.s]}</span><span>${escapeHtml(c.t)}</span></div>`).join('')}</div>` : ''}
+        <div class="check-list">${imp.checks.map(c=>`<div><span class="${c.s}">${mark[c.s]}</span><span>${escapeHtml(c.t)}</span></div>`).join('')}</div>
+        ${(imp.clash||[]).map(c=>`<div class="modal-note" style="margin:8px 0;">เลขชุดนี้ถูกใส่ไว้ที่แผน <b>${escapeHtml(c.name)}</b> (${c.n} เลข) — ถ้าอัปโหลดผิดแผน ให้ย้ายมาแผนนี้<br><button type="button" class="btn btn-sm btn-destroy" data-act="releaseClash" data-plan-id="${escapeHtml(c.id)}" ${imp.status!=='ready'?'disabled':''}>ปลดเลขออกจาก "${escapeHtml(c.name)}" แล้วใช้กับแผนนี้</button></div>`).join('')}` : ''}
       ${!state.schemaReady ? `<div class="schema-warn" style="margin-top:10px;">${COUPON_SQL_HINT}</div>` : ''}
       ${state.modalError ? `<div class="modal-error">${escapeHtml(state.modalError)}</div>` : ''}
       <div class="modal-actions"><button class="btn btn-ghost" data-act="closeModal">ยกเลิก</button><button class="btn btn-claim" data-act="submitVouchers" ${!imp || imp.status!=='ready' || imp.checks.some(c=>c.s==='n') ? 'disabled' : ''}>${imp && imp.status==='saving' ? 'กำลังบันทึก…' : 'บันทึกเลขคูปอง'}</button></div>
@@ -2486,6 +2507,7 @@ function attachHandlers(){
     }
     if(act==='uploadVouchers'){ state.voucherImport=null; openModal('uploadVouchers'); return; }
     if(act==='vcMode'){ const imp=state.voucherImport; if(imp&&imp.status==='ready'){ imp.mode=el.dataset.mode; vcApplyMode(imp,currentPlan()); } else state.vcModePref=el.dataset.mode; render(); return; }
+    if(act==='releaseClash'){ releaseClash(el.dataset.planId); return; }
     if(act==='submitVouchers'){ if(!el.disabled) confirmVoucherImport(); return; }
     if(act==='printCoupons'){ if(el.disabled) return; state.printOpts={scope:'all', from:'', to:''}; openModal('printCoupons'); return; }
     if(act==='printScope'){ state.printOpts.scope=el.dataset.scope; render(); return; }
