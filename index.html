@@ -2,7 +2,7 @@
 <html lang="th">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover">
 <title>สมุดเบิกคูปอง CJX</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -107,7 +107,7 @@
   .u-who b{ font-weight:800; margin-right:6px; } .u-who span{ color:var(--ink-soft); font-size:13px; }
   .u-sub{ font-size:12px; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
   
-  @media (max-width:640px){ .who-name{ max-width:110px; } .masthead-actions{ width:100%; justify-content:space-between; } .nav-row .nav-danger{ margin-left:0; } }
+  @media (max-width:640px){ .who-name{ max-width:none; } .masthead-actions{ width:100%; justify-content:space-between; } .nav-row .nav-danger{ margin-left:0; } }
 
   .folder-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(240px,1fr)); gap:12px; }
   .folder{ background:var(--panel); border:2.5px solid var(--ink); border-top:8px solid var(--act-claim); border-radius:var(--radius); padding:14px; cursor:pointer; position:relative; box-shadow:var(--shadow); transition:transform .08s ease; }
@@ -255,11 +255,19 @@
   .mobile-nav{ display:none; }
 
   @media (max-width:640px){
-    .app{ padding:12px 10px 78px; }
+    .app{ padding:12px 10px calc(84px + env(safe-area-inset-bottom)); }
     .coupon-grid{ grid-template-columns:repeat(auto-fill, minmax(38px,1fr)); }
     .brand-title h1{ font-size:15px; } .brand-mark{ font-size:19px; }
-    .toolbar{ flex-direction:column; }
-    .toolbar .btn{ width:100%; }
+    .plan-head{ flex-direction:column; align-items:stretch; }
+    .toolbar{ display:grid; grid-template-columns:1fr 1fr; gap:8px; width:100%; }
+    .toolbar .btn{ width:100%; min-height:46px; justify-content:center; text-align:center; }
+    .toolbar .btn-destroy, .toolbar .btn-ghost{ grid-column:1 / -1; }
+    .masthead-actions{ flex-wrap:nowrap; gap:8px; } .masthead-actions > *{ min-width:0; }
+    .who{ flex:1 1 auto; min-width:0; } .who .chip{ flex:none; } .masthead-actions .btn{ flex:none; white-space:nowrap; }
+    .nav-row .btn{ flex:1 1 auto; justify-content:center; }
+    .mobile-nav{ padding-bottom:env(safe-area-inset-bottom); }
+    .mobile-nav button{ min-height:54px; justify-content:center; }
+    .toast{ bottom:calc(76px + env(safe-area-inset-bottom)); }
     .filters{ flex-direction:column; }
     .filters input, .filters select{ width:100%; }
     .filters input[type=text]{ min-width:0; }
@@ -1774,6 +1782,7 @@ function render(){
     <div class="mobile-nav">
       <button data-act="home" class="${state.view==='home'?'active':''}"><span class="ico">🏠</span>หน้าแรก</button>
       ${state.currentPlanId ? `<button data-act="reopenPlan" class="${state.view==='plan'?'active':''}"><span class="ico">🎟️</span>แผนงาน</button>` : ''}
+      ${isAdmin() ? `<button data-act="goUsers" class="${state.view==='users'?'active':''}"><span class="ico">👥</span>ผู้ใช้งาน</button>` : ''}
       <button data-act="goHelp" class="${state.view==='help'?'active':''}"><span class="ico">📘</span>คู่มือ</button>
     </div>
   `;
@@ -1963,7 +1972,7 @@ function renderPlan(){
 
   return `
     <div class="plan-head">
-      <div><h2>${escapeHtml(plan.name)}</h2><div class="meta">${escapeHtml(plan.branchCode||'-')} · ${escapeHtml(plan.province||'-')} · ${fmtDateShort(plan.startDate)} – ${fmtDateShort(plan.endDate)}</div></div>
+      <div><h2>${escapeHtml(plan.name)}</h2><div class="meta">${[plan.branchCode, plan.province].filter(Boolean).map(escapeHtml).join(' · ')}${(plan.branchCode||plan.province)?' · ':''}${fmtDateShort(plan.startDate)} – ${fmtDateShort(plan.endDate)}</div></div>
       <div class="toolbar">
         <button class="btn btn-claim" data-act="claim" ${!plan.team?'disabled':''}>เบิกคูปอง</button>
         <button class="btn btn-print" data-act="printCoupons" ${!voucherCount?'disabled title="ยังไม่มีเลขคูปองจริง รอแอดมินอัปโหลดไฟล์จาก nest"':''}>พิมพ์คูปอง</button>
