@@ -935,7 +935,7 @@ const CP_THEMES = {
   orange:{main:'#e0711c', tint:'#fdf0e4', name:'ส้ม'},
   blue:{main:'#2457b5', tint:'#e9effb', name:'น้ำเงิน'},
 };
-const CP_INK='#1d1d1b', CP_PAPER='#ffffff', CP_GOLD='#f6b52e', CP_MUTED='#5a5a55', CP_MOD=0.33;
+const CP_INK='#1d1d1b', CP_PAPER='#ffffff', CP_GOLD='#f6b52e', CP_MUTED='#5a5a55', CP_MOD=0.25;   // scanner-proof barcode: 0.25 mm module, 10 mm tall, Code128C (matches the approved coupon20_ladprao101 sample)
 const isNewBranchType = t => /เปิด/.test(t||'') && !/แฟร์/.test(t||'');
 const defaultTheme = plan => isNewBranchType(plan.taskType) ? 'red' : 'teal';
 
@@ -1064,8 +1064,8 @@ function cpFront(c, S){
   x.fillStyle=th.main; cpRound(x,mid-nbW/2,nbY,nbW,nbH,nbH/2); x.fill();
   x.fillStyle=CP_PAPER; x.globalAlpha=0.55; x.beginPath(); x.arc(mid-nbW/2+nbH*0.5, nbY+nbH/2, nbH*0.12, 0, Math.PI*2); x.arc(mid+nbW/2-nbH*0.5, nbY+nbH/2, nbH*0.12, 0, Math.PI*2); x.fill(); x.globalAlpha=1;
   const note='เฉพาะสมาชิกใหม่ · ใช้ได้เฉพาะสาขานี้'; x.textAlign='center'; x.textBaseline='alphabetic'; x.fillStyle=CP_MUTED; cpFit(x,note,'500','Prompt',sw-6,1.8,1.1); x.fillText(note,mid,u0+uh-0.2);
-  const by=u0+uh*0.34, bh=uh*0.37;
-  const st={horizontal:true, by, bh, digitsY:by+bh+3.3};
+  const by=10.76, bh=10;   // mm from the top of the coupon: bars 10.76–20.76
+  const st={horizontal:true, by, bh, digitsY:23.76};
   return {canvas:cv, W, H, fr, st, cs, no:{cx:mid, cy:nbY+nbH/2, size:nbSize}};
 }
 function cpBars(value){
@@ -1106,7 +1106,7 @@ function cpBuildPdf(c, items){
       doc.addImage(img,'PNG',0,oy,g.cw,g.ch,'front','FAST');
       const bc=cpStubBarcode(t,it.v); doc.setFillColor(0,0,0);
       for(const [rx,ry,rw,rh] of bc.rects) doc.rect(rx,oy+ry,rw,rh,'F');
-      doc.setFont('courier','bold'); doc.setFontSize(8.2); doc.setTextColor(29,29,27);
+      doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(0,0,0);
       doc.text(cpSpaced(it.v), bc.x0+bc.len/2, oy+t.st.digitsY, {align:'center'});
       doc.setFont('helvetica','bold'); doc.setFontSize(t.no.size*2.835); doc.setTextColor(255,255,255);
       doc.text(`No. ${String(it.no).padStart(4,'0')}`, t.no.cx, oy+t.no.cy+t.no.size*0.36, {align:'center'});
@@ -1792,7 +1792,7 @@ async function drawCouponCanvases(){
     cv.width=t.canvas.width; cv.height=t.canvas.height;
     const x=cv.getContext('2d'); x.drawImage(t.canvas,0,0);
     if(first){ const bc=cpStubBarcode(t, first.voucher); x.fillStyle='#000'; for(const [rx,ry,rw,rh] of bc.rects) x.fillRect(rx*8,ry*8,rw*8,rh*8);
-      x.font='500 '+(2.3*8)+'px "IBM Plex Mono", monospace'; x.textAlign='center'; x.fillStyle='#1d1d1b'; x.fillText(cpSpaced(first.voucher),(bc.x0+bc.len/2)*8,t.st.digitsY*8);
+      x.font='400 '+(3.35*8)+'px Arial, Helvetica, sans-serif'; x.textAlign='center'; x.fillStyle='#000'; x.fillText(cpSpaced(first.voucher),(bc.x0+bc.len/2)*8,t.st.digitsY*8);
       x.font='700 '+(t.no.size*8)+'px Prompt, sans-serif'; x.fillStyle='#fff'; x.textBaseline='alphabetic'; x.fillText('No. '+String(first.no).padStart(4,'0'),t.no.cx*8,(t.no.cy+t.no.size*0.36)*8); }
   });
 }
